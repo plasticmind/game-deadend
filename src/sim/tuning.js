@@ -24,6 +24,7 @@ export const PLAYER = {
   shotLife: 2.5, // seconds before a shot that hit nothing fizzles
   muzzle: 0.4, // a new shot starts this far ahead of Shamus
   fireCooldown: 0.16,
+  clickBuffer: 0.25, // a mouse click waits this long for a free shot, so quick clicks count
   respawnInvuln: 1.6,
   deathTime: 1.6,
   touchSlack: 0.08, // robots and the Shadow must overlap Shamus this much to kill him

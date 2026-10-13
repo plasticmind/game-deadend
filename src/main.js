@@ -54,7 +54,7 @@ let renderErrors = 0;
 // ------------------------------------------------------------------ shell modules
 
 const audio = createAudio(save.settings);
-const input = createInput({ touchRoot });
+const input = createInput({ touchRoot, toRoom: (x, y) => renderer?.screenToRoom?.(x, y) ?? null });
 const hud = createHud(hudRoot, {
   onButton(which) {
     audio.unlock();
@@ -354,12 +354,18 @@ function afterEvents(g, events) {
 }
 
 let last = performance.now();
+let inPlay = false;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - last) / 1000;
   last = now;
   if (!(dt > 0)) dt = 0;
   if (dt > 0.25) dt = 0.25;
+  // The stylesheet shows the aiming crosshair over the room only during play.
+  if (inPlay !== (run.state === 'play')) {
+    inPlay = run.state === 'play';
+    document.documentElement.classList.toggle('in-play', inPlay);
+  }
 
   input.poll(dt);
   frameEvents.length = 0;

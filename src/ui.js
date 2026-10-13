@@ -189,23 +189,29 @@ export function createUI(root, ctx) {
           h(
             'table',
             { class: 'controls' },
-            h('thead', {}, h('tr', {}, h('td', {}), h('th', { scope: 'col' }, 'Keyboard'), h('th', { scope: 'col' }, 'Gamepad'), h('th', { scope: 'col' }, 'Touch'))),
+            h('thead', {}, h('tr', {}, h('td', {}), h('th', { scope: 'col' }, 'Keyboard and mouse'), h('th', { scope: 'col' }, 'Gamepad'), h('th', { scope: 'col' }, 'Touch'))),
             h(
               'tbody',
               {},
               row('Move', 'Arrows or WASD', 'Stick or d-pad', 'Left thumb'),
-              row('Fire', 'Space, J, Z, or Enter', 'A or X', 'FIRE button'),
-              row('Aim and shoot', 'Hold fire, press a direction', 'Hold A, push the stick', 'Hold FIRE, move the stick'),
+              row('Fire', 'Click, or Space, J, Z, or Enter', 'A or X', 'FIRE button'),
+              row('Aim and shoot', 'Click where you want to shoot, or hold fire and press a direction', 'Hold A, push the stick', 'Hold FIRE, move the stick'),
               row('Pause', 'Esc or P', 'Start', 'Pause button'),
               row('Map', 'M or Tab', 'Back or Select', 'Map button'),
             ),
           ),
         ),
+        h('h3', {}, 'Shooting with the mouse'),
+        h(
+          'p',
+          {},
+          'Click anywhere in the room and Shamus fires toward that spot, at any angle. Hold the button to keep firing. He keeps walking while you shoot, so steer with WASD or the arrow keys.',
+        ),
         h('h3', {}, 'Shooting, the Shamus way'),
         h(
           'p',
           {},
-          'Shamus can’t walk and shoot at the same time. Hold fire and he plants his feet. Push a direction while you hold it and he fires that way, in any of eight directions. Let go of fire to walk again. Only two ION-SHIVs fly at once.',
+          'With fire keys, a gamepad, or touch, Shamus can’t walk and shoot at the same time. Hold fire and he plants his feet. Push a direction while you hold it and he fires that way, in any of eight directions. Let go of fire to walk again. However you shoot, only two ION-SHIVs fly at once.',
         ),
         h('h3', {}, 'Things you meet'),
         h(

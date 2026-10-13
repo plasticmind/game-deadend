@@ -48,6 +48,14 @@ export class Debug2D {
     this.fx.length = 0;
   }
 
+  // The room point (in cells) under a screen point (client pixels), for mouse aiming.
+  screenToRoom(clientX, clientY) {
+    if (!this.fit) return null;
+    const r = this.canvas.getBoundingClientRect();
+    const { s, ox, oy } = this.fit;
+    return { x: ((clientX - r.left) * this.dpr - ox) / s, y: ((clientY - r.top) * this.dpr - oy) / s };
+  }
+
   render(game, events = [], dt = 0) {
     this.t += dt;
     const { ctx, canvas } = this;
@@ -65,6 +73,7 @@ export class Debug2D {
     const ox = (cw - s * W) / 2;
     const oy = top + (ch - top - pad - s * H) / 2;
     ctx.setTransform(s, 0, 0, s, ox, oy);
+    this.fit = { s, ox, oy };
     const px = 1 / s; // one device pixel in room units
 
     const room = game.room;
@@ -323,7 +332,7 @@ export class Debug2D {
   drawPlayer(p, game) {
     if (!p) return;
     const { ctx } = this;
-    const [fx, fy] = faceVec(p.face);
+    const [fx, fy] = p.freeAim ? [p.aimX, p.aimY] : faceVec(p.face);
     if (!p.alive) {
       ctx.strokeStyle = '#ffb547';
       ctx.lineWidth = 0.08;

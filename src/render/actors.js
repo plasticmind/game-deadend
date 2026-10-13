@@ -806,12 +806,14 @@ export class Actors {
     S.root.visible = show;
     if (!show) return;
     S.root.position.set(toX(p.x), 0, toZ(p.y));
-    S.yaw = approachAngle(S.yaw, yawOf(p.face), 16, dt);
+    // Mouse aiming turns him to the exact angle; otherwise he faces one of eight ways.
+    const yaw = p.freeAim ? -Math.atan2(p.aimY, p.aimX) : yawOf(p.face);
+    S.yaw = approachAngle(S.yaw, yaw, p.freeAim ? 24 : 16, dt);
     S.root.rotation.y = S.yaw;
 
     const phase = p.walk * (TAU / 0.8);
     const moving = p.moving && !dying;
-    const aiming = p.aiming && !dying;
+    const aiming = (p.aiming || p.freeAim) && !dying;
     S.aim = approach(S.aim, aiming ? 1 : 0, 22, dt);
     const swing = moving ? Math.sin(phase) : 0;
     const legT = moving ? 0.6 * swing : aiming ? 0.18 : 0;

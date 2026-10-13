@@ -1,6 +1,7 @@
-// ION-SHIVs (the player's shots) and robot bolts. Both fly straight along one of the 8
-// directions and die on electric walls, blocks, live pod gates, closed lock barriers,
-// and the room's edge. A shot and a bolt that meet destroy each other.
+// ION-SHIVs (the player's shots) and robot bolts. Both fly in a straight line (bolts and
+// keyboard shots along one of the 8 directions, mouse shots at any angle) and die on
+// electric walls, blocks, live pod gates, closed lock barriers, and the room's edge. A
+// shot and a bolt that meet destroy each other.
 
 import { W, H, DOOR, LOCK_FACE, touchesWall, touchesPod, blockAt } from '../room.js';
 import { DT, PLAYER, FOES } from './tuning.js';
@@ -10,14 +11,15 @@ import { hitShadow } from './shadow.js';
 
 const SUBSTEPS = 2; // projectiles move in half steps so fast pairs can't pass through each other
 
-// Fire an ION-SHIV along the player's facing, if one is free. Returns whether it fired.
-export function tryFire(game) {
+// Fire an ION-SHIV along the unit vector (ux, uy), or along the player's facing, if one
+// is free. Returns whether it fired.
+export function tryFire(game, ux = null, uy = null) {
   const p = game.player;
   if (p.fireCd > 0 || game.shots.length >= PLAYER.maxShots) return false;
-  const [ux, uy] = UNIT[p.face];
+  if (ux === null || uy === null) [ux, uy] = UNIT[p.face];
   game.shots.push({ id: game.nextId++, x: p.x + ux * PLAYER.muzzle, y: p.y + uy * PLAYER.muzzle, dx: ux, dy: uy, t: 0 });
   p.fireCd = PLAYER.fireCooldown;
-  emit(game, 'fire', { x: p.x, y: p.y, face: p.face });
+  emit(game, 'fire', { x: p.x, y: p.y, face: p.face, dx: ux, dy: uy });
   return true;
 }
 

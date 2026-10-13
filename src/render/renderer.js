@@ -31,6 +31,9 @@ const FOV = 30;
 const MARGIN = { side: 0.035, bottom: 0.04, top: 0.1 };
 // The box the camera fits: the room with its bulkhead and a little machinery.
 const FIT = { x: 12.5, z0: -8.4, z1: 8.5, y: 1.3 };
+// Mouse aiming reads the cursor on a plane at the height of the robots' bodies, so the
+// point under the cursor is the robot you see there.
+const AIM_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.5);
 
 // Pixel budgets cap the drawing buffer. Within the budget the buffer may exceed the
 // device pixel ratio (up to `ss` times it), which antialiases high and medium more
@@ -249,6 +252,19 @@ export class Renderer {
 
     if (this.composer) this.composer.render(dt);
     else this.gl.render(this.scene, this.camera);
+  }
+
+  // The room point (in cells) under a screen point (client pixels), for mouse aiming.
+  // It uses the camera as last drawn, so it stays right during slides and shakes.
+  screenToRoom(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    const pick = (this._pick ||= { ndc: new THREE.Vector2(), ray: new THREE.Raycaster(), hit: new THREE.Vector3() });
+    pick.ndc.set(((clientX - r.left) / r.width) * 2 - 1, 1 - ((clientY - r.top) / r.height) * 2);
+    pick.ray.setFromCamera(pick.ndc, this.camera);
+    if (!pick.ray.ray.intersectPlane(AIM_PLANE, pick.hit)) return null;
+    // toX and toZ in reverse.
+    return { x: pick.hit.x + 10.5, y: pick.hit.z + 6.5 };
   }
 
   dispose() {
@@ -528,7 +544,7 @@ export class Renderer {
       const e = events[i];
       switch (e.type) {
         case 'fire': {
-          const a = (e.face * Math.PI) / 4;
+          const a = e.dx !== undefined ? Math.atan2(e.dy, e.dx) : (e.face * Math.PI) / 4;
           const x = e.x + Math.cos(a) * 0.55;
           const y = e.y + Math.sin(a) * 0.55;
           fx.flash(x, y, 0.55, C.shot, 0.6, 0.12, false);

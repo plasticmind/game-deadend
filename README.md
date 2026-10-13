@@ -34,9 +34,11 @@ screen shows how many hits he has left.
   each faster than the last. Reaching a new sector saves a checkpoint, and after a game
   over you can continue from it with a full set of lives.
 
-Shamus shoots the way he did in 1982. He can't walk and shoot at the same time: hold
-fire and he plants his feet, then push a direction to shoot that way, in any of eight
-directions. Let go of fire to walk again. Only two ION-SHIVs fly at once.
+With fire keys, a gamepad, or touch, Shamus shoots the way he did in 1982. He can't
+walk and shoot at the same time: hold fire and he plants his feet, then push a direction
+to shoot that way, in any of eight directions. Let go of fire to walk again. With the
+mouse, click where you want to shoot: he fires toward the cursor at any angle and keeps
+walking. However you shoot, only two ION-SHIVs fly at once.
 
 ### Things you meet
 
@@ -67,13 +69,18 @@ score.
 
 ## Controls
 
-| Action | Keyboard | Gamepad | Touch |
+| Action | Keyboard and mouse | Gamepad | Touch |
 |---|---|---|---|
 | Move | Arrow keys or WASD | Left stick or d-pad (eight directions) | Virtual stick on the left half |
-| Fire | Space, J, Z, or Enter | A or X | FIRE button |
-| Aim and shoot | Hold fire, press a direction | Hold A, push the stick | Hold FIRE, move the stick |
+| Fire | Click, or Space, J, Z, or Enter | A or X | FIRE button |
+| Aim and shoot | Click where you want to shoot, or hold fire and press a direction | Hold A, push the stick | Hold FIRE, move the stick |
 | Pause | Esc or P | Start | Pause button |
 | Map | M or Tab | Back or Select | Map button |
+
+The mouse aims at any angle: click in the room and Shamus fires toward the cursor, and
+holding the button keeps firing. He keeps walking while you shoot with the mouse. Fire
+keys, the gamepad, and touch aim the original way instead: holding fire plants his feet,
+and he shoots in one of eight directions.
 
 Menus work with every input. Use the arrow keys, stick, or d-pad to move between items,
 Enter, Space, or A to choose, and Esc or B to go back. Touch screens show the virtual

@@ -65,6 +65,8 @@ export function killPlayer(game, cause, foe = null) {
   p.alive = false;
   p.deadT = 0;
   p.aiming = false;
+  p.freeAim = false;
+  p.queueT = 0;
   p.moving = false;
   game.mode = 'dying';
   game.stats.deaths++;

@@ -128,7 +128,7 @@ game = {
     podOn,                              // pod gates live right now
     locks: { [side]: { color, lockId, open } },
   },
-  player: { x, y, r, face, moving, aiming, alive, deadT, invulnT, shieldT, boost, walk },
+  player: { x, y, r, face, moving, aiming, freeAim, aimX, aimY, alive, deadT, invulnT, shieldT, boost, walk },
   shots: [{ id, x, y, dx, dy, t }],                     // the player's ION-SHIVs (max 2)
   bolts: [{ id, x, y, vx, vy, t, from }],               // robot fire; `from` is a foe type
   foes: [{ id, type, x, y, face, state, t, hp, ... }],  // type below; state is per type
@@ -147,6 +147,14 @@ Firing: while fire is held, a held direction turns Shamus and fires along it, ag
 whenever a shot is free (`PLAYER.maxShots`, `PLAYER.fireCooldown`); a press with no
 direction fires once along `face` (buffered until a shot frees up or fire is released).
 
+Mouse aiming: the input may carry `aim: { x, y }`, a point in room cells (the cursor).
+Then fire shoots toward that point at any angle, whenever a shot is free, and Shamus
+keeps walking. A press that finds no shot free waits up to `PLAYER.clickBuffer` for one,
+even after the button comes up, so the shell keeps sending `aim` for a moment after a
+release. `player.freeAim` is true while he fires that way, along the unit vector
+`(aimX, aimY)`, and `face` is the nearest of the eight directions. The renderer turns
+him to the exact angle while `freeAim` is set.
+
 More state the sim keeps (the renderer and HUD may read any of it):
 
 - `game.cheats = { invuln, noShadow, noFoes }`. `invuln` stops robots, bolts, and the
@@ -157,7 +165,8 @@ More state the sim keeps (the renderer and HUD may read any of it):
 - `room.lair` (room 127), `room.shadowCame` (he came this visit), `room.foesSpawned`
   (robots this visit; `roomClear` needs at least one).
 - `player.fireCd`, `player.fireHeld`, `player.wantShot`: firing internals.
-- `shots[i].dx, dy` is a unit vector along one of the 8 directions.
+- `shots[i].dx, dy` is a unit vector: along one of the 8 directions, or at any angle for
+  a mouse shot. The `fire` event carries the same `dx, dy`.
 - `bolts[i]` also has `owner` (the id of the robot that fired it) and `life` (seconds it
   flies; a jumper's zap is short).
 - `foes[i]` also has `r` (radius), `dur` (length of the current state, 0 when open-ended;

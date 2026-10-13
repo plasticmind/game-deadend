@@ -1,9 +1,12 @@
-// Keyboard, gamepads, and touch, merged into the sim's input { x, y, fire } (x and y are
-// -1, 0, or 1) plus one stream of menu actions: up, down, left, right, confirm, back,
-// pause, and map. Shamus aims the original way: hold fire and push a direction to plant
-// your feet and shoot that way. The sim does that; input only reports what is held.
+// Keyboard, mouse, gamepads, and touch, merged into the sim's input { x, y, fire, aim }
+// (x and y are -1, 0, or 1) plus one stream of menu actions: up, down, left, right,
+// confirm, back, pause, and map. Fire keys aim the original way: hold fire and push a
+// direction to plant your feet and shoot that way. The mouse button fires toward the
+// cursor instead (aim is that point in room cells), and Shamus keeps walking. The sim
+// does the rest; input only reports what is held.
 //
 //   Keyboard  arrows or WASD move; Space, J, Z, or Enter fire; Esc or P pause; M or Tab map
+//   Mouse     left button fires at the cursor (hold to keep firing)
 //   Gamepad   stick or d-pad move (eight directions); A or X fire; Start pause; Back/Select map
 //   Touch     a floating stick on the left half, a big fire button on the right
 
@@ -18,6 +21,9 @@ const FIRE_KEYS = new Set(['Space', 'KeyJ', 'KeyZ', 'Enter', 'NumpadEnter']);
 
 const PAD = { A: 0, B: 1, X: 2, Y: 3, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 const STICK_DEAD = 0.4;
+// After the mouse button comes up, keep reporting the cursor this long, so a quick click
+// the sim queued (PLAYER.clickBuffer) still fires toward it.
+const AIM_LINGER_MS = 300;
 const NAV_DELAY = 0.38; // seconds before a held direction repeats in menus
 const NAV_REPEAT = 0.13;
 
@@ -29,9 +35,12 @@ function octant(x, y) {
   return [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
 }
 
-export function createInput({ touchRoot } = {}) {
+// toRoom(clientX, clientY) maps a screen point to a room point ({ x, y } in cells) or
+// null; mouse aiming needs it.
+export function createInput({ touchRoot, toRoom = () => null } = {}) {
   const held = []; // keyboard direction codes, oldest first
   const fireKeys = new Set();
+  const mouse = { down: false, cx: 0, cy: 0, upAt: -Infinity };
   let handler = () => false;
   let anyInput = () => {};
   let latch = false; // ignore fire until every fire control is released
@@ -97,6 +106,8 @@ export function createInput({ touchRoot } = {}) {
   function clearHeld() {
     held.length = 0;
     fireKeys.clear();
+    mouse.down = false;
+    mouse.upAt = -Infinity;
     touch.x = touch.y = 0;
     touch.fire = false;
     touch.stickId = touch.fireId = null;
@@ -108,6 +119,30 @@ export function createInput({ touchRoot } = {}) {
   window.addEventListener('blur', clearHeld);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) clearHeld();
+  });
+
+  // ------------------------------------------------------------------ mouse
+
+  // Only a press on the game view itself fires, so the HUD's buttons and the menus keep
+  // their clicks. Touch and pens have their own controls.
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    mouse.cx = e.clientX;
+    mouse.cy = e.clientY;
+  });
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || e.target?.id !== 'view') return;
+    anyInput();
+    lastSource = 'mouse';
+    mouse.down = true;
+    mouse.cx = e.clientX;
+    mouse.cy = e.clientY;
+    e.preventDefault();
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !mouse.down) return;
+    mouse.down = false;
+    mouse.upAt = performance.now();
   });
 
   // ------------------------------------------------------------------ gamepads
@@ -291,7 +326,7 @@ export function createInput({ touchRoot } = {}) {
     return [x, y];
   }
 
-  const out = { x: 0, y: 0, fire: false };
+  const out = { x: 0, y: 0, fire: false, aim: null };
 
   return {
     // Called once per animation frame, before reading.
@@ -306,14 +341,17 @@ export function createInput({ touchRoot } = {}) {
       let y = touch.y;
       if (kx || ky) [x, y] = [kx, ky];
       else if (pad.x || pad.y) [x, y] = [pad.x, pad.y];
-      const fireHeld = fireKeys.size > 0 || pad.fire || touch.fire;
+      const fireHeld = fireKeys.size > 0 || pad.fire || touch.fire || mouse.down;
       if (latch && !fireHeld) latch = false;
       out.x = x;
       out.y = y;
       out.fire = fireHeld && !latch;
+      const aiming = mouse.down || performance.now() - mouse.upAt < AIM_LINGER_MS;
+      out.aim = aiming ? toRoom(mouse.cx, mouse.cy) : null;
       return out;
     },
-    // (name, source, event) => handled. Sources: 'keyboard', 'tab', 'pad'.
+    // (name, source, event) => handled. Sources: 'keyboard', 'tab', 'pad'. The mouse
+    // sends no actions; menus take its clicks directly.
     onAction(fn) {
       handler = fn;
     },

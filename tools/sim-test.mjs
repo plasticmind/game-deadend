@@ -229,6 +229,52 @@ test('fire: aiming plants his feet; a held direction aims, a bare press fires al
   assert.ok(g.player.y > spot.y + 0.2);
 });
 
+test('fire: mouse aim shoots toward the point at any angle while he keeps walking', () => {
+  const g = quiet();
+  const spot = openLine(g, 1, 0, 5);
+  place(g, spot.x, spot.y);
+  // A point up and to the right at about 30 degrees, not one of the eight directions.
+  const aim = { x: spot.x + 3, y: spot.y - Math.sqrt(3) };
+  let ev = run(g, { x: 0, y: 0, fire: true, aim }, 1);
+  assert.equal(count(ev, 'fire'), 1);
+  const shot = g.shots[g.shots.length - 1];
+  assert.ok(Math.abs(shot.dx - Math.cos(Math.PI / 6)) < 1e-9 && Math.abs(shot.dy + 0.5) < 1e-9, 'the shot flies at 30 degrees');
+  assert.equal(find(ev, 'fire').dx, shot.dx);
+  assert.equal(g.player.freeAim, true);
+  assert.equal(g.player.aiming, false, 'mouse fire does not plant his feet');
+  assert.equal(g.player.face, 7, 'he faces the nearest of the eight directions');
+  // Held fire with a direction: he walks east and keeps firing at the point.
+  run(g, IDLE, 40);
+  const x0 = g.player.x;
+  ev = run(g, { x: 1, y: 0, fire: true, aim: { x: spot.x + 4, y: spot.y } }, 30);
+  assert.ok(g.player.x > x0 + 0.5, 'he walks while he fires');
+  assert.ok(count(ev, 'fire') >= 2, 'holding keeps firing');
+  // Letting go clears freeAim, and a point on top of him keeps the last aim.
+  run(g, { x: 0, y: 0, fire: false, aim: { x: g.player.x, y: g.player.y } }, 1);
+  assert.equal(g.player.freeAim, false);
+  assert.ok(g.player.aimX > 0.99);
+});
+
+test('fire: a quick mouse click during the cooldown still fires once a shot frees up', () => {
+  const g = quiet();
+  const spot = openLine(g, 1, 0, 5);
+  place(g, spot.x, spot.y);
+  const aim = { x: spot.x + 4, y: spot.y };
+  let fires = count(run(g, { x: 0, y: 0, fire: true, aim }, 2), 'fire');
+  // Up for one step, then a two-step click, all inside the cooldown.
+  fires += count(run(g, { x: 0, y: 0, fire: false, aim }, 1), 'fire');
+  fires += count(run(g, { x: 0, y: 0, fire: true, aim }, 2), 'fire');
+  assert.equal(fires, 1, 'the second click lands in the cooldown');
+  // Released, with the shell still sending the cursor: the queued click fires.
+  const steps = Math.ceil(PLAYER.clickBuffer / DT) - 2;
+  fires += count(run(g, { x: 0, y: 0, fire: false, aim }, steps), 'fire');
+  assert.equal(fires, 2);
+  // A click never fires twice, and the queue empties.
+  fires += count(run(g, { x: 0, y: 0, fire: false, aim }, 30), 'fire');
+  assert.equal(fires, 2);
+  assert.equal(g.player.queueT, 0);
+});
+
 test('fire: a press while both shots are out fires as soon as one frees up', () => {
   const g = quiet();
   const spot = openLine(g, 1, 0, 9);

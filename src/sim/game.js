@@ -45,6 +45,9 @@ export function createGame({ skill = 1, seed = 1, from = null, cheats = null } =
       x: 0, y: 0, r: PLAYER.radius, face: 0, moving: false, aiming: false,
       alive: true, deadT: 0, invulnT: 0, shieldT: 0, boost: false, walk: 0, fireCd: 0,
       fireHeld: false, wantShot: false,
+      // Mouse aiming: freeAim is true while he runs and guns toward the cursor, along the
+      // unit vector (aimX, aimY).
+      freeAim: false, aimX: 1, aimY: 0, queueT: 0,
     },
     shots: [],
     bolts: [],
@@ -172,6 +175,8 @@ export function enterRoom(game, id, side, along = null) {
   Object.assign(p, game.room.entry);
   p.moving = false;
   p.aiming = false;
+  p.freeAim = false;
+  p.queueT = 0;
   p.boost = false;
   p.fireCd = 0;
   p.wantShot = false;
@@ -209,7 +214,9 @@ function makeItem(game, meta, geo) {
 
 // ------------------------------------------------------------------ the step
 
-// input: { x: -1|0|1, y: -1|0|1, fire: boolean }
+// input: { x: -1|0|1, y: -1|0|1, fire: boolean, aim?: { x, y } }
+// `aim` is a point in room cells (the mouse cursor). With it, fire shoots toward that
+// point and Shamus keeps walking; without it, fire plants his feet the original way.
 export function stepGame(game, input = {}) {
   game.events.length = 0;
   if (game.mode === 'gameover' || game.mode === 'won') return;
@@ -268,15 +275,40 @@ function updatePlayer(game, input) {
   const ix = held ? 0 : Math.sign(input.x || 0);
   const iy = held ? 0 : Math.sign(input.y || 0);
   const fire = held ? false : !!input.fire;
-  // Fire plants Shamus's feet. A held direction aims and fires along it (again and
-  // again while held); a press with no direction fires once along his facing.
-  if (fire && !p.fireHeld) p.wantShot = true;
-  if (!fire) p.wantShot = false;
-  p.fireHeld = fire;
-  p.aiming = fire;
+  const aim = held ? null : input.aim;
   p.moving = false;
-  if (ix || iy) p.face = faceOf(ix, iy);
-  if (fire && (ix || iy || p.wantShot) && tryFire(game)) p.wantShot = false;
+  if (aim) {
+    // Mouse aiming: run and gun. Holding the button keeps firing as fast as the
+    // ION-SHIVs come back, and a quick click that lands while none is free waits a moment
+    // for one (the shell keeps sending `aim` briefly after a release for this). He faces
+    // the cursor while he shoots.
+    const ax = aim.x - p.x;
+    const ay = aim.y - p.y;
+    const len = Math.hypot(ax, ay);
+    if (len > 0.05) {
+      p.aimX = ax / len;
+      p.aimY = ay / len;
+    }
+    p.queueT = fire && !p.fireHeld ? PLAYER.clickBuffer : Math.max(0, p.queueT - DT);
+    p.fireHeld = fire;
+    p.wantShot = false;
+    p.aiming = false;
+    p.freeAim = fire || p.queueT > 0;
+    if (p.freeAim) p.face = faceOf(p.aimX, p.aimY);
+    else if (ix || iy) p.face = faceOf(ix, iy);
+    if (p.freeAim && tryFire(game, p.aimX, p.aimY)) p.queueT = 0;
+  } else {
+    // Fire plants Shamus's feet. A held direction aims and fires along it (again and
+    // again while held); a press with no direction fires once along his facing.
+    if (fire && !p.fireHeld) p.wantShot = true;
+    if (!fire) p.wantShot = false;
+    p.fireHeld = fire;
+    p.aiming = fire;
+    p.freeAim = false;
+    p.queueT = 0;
+    if (ix || iy) p.face = faceOf(ix, iy);
+    if (fire && (ix || iy || p.wantShot) && tryFire(game)) p.wantShot = false;
+  }
 
   if (!p.aiming && (ix || iy)) {
     const { x: nx, y: ny } = previewMove(game, ix, iy);
