@@ -331,10 +331,11 @@ export function createUI(root, ctx) {
         'Credits',
         h(
           'div',
-          { class: 'screen-body' },
+          { class: 'screen-body scrolls', tabindex: '-1' },
           h('p', { class: 'credit-big' }, 'A spiritual successor to Shamus by Cathryn Mataga, Synapse Software, 1982.'),
           h('p', {}, 'Dead End rebuilds the original’s 128-room lair, its colored keys, its electric walls, and the Shadow who punishes anyone who lingers, as a 3D diorama for the Gardner family arcade.'),
-          h('p', {}, 'Every sound and the music are synthesized in your browser. 3D by three.js.'),
+          h('p', {}, 'Music, all CC0 from OpenGameArt.org: “Moil” by Ruskerdax; “Investigation,” “Jazz,” and “Sneaking into the Robot Factory” by Umplix; “jazz (saxaphone)” by Alex McCulloch; and “Spy Loop” by wipics.'),
+          h('p', {}, 'Sound effects by Kenney (kenney.nl), CC0; the rest are synthesized in your browser. 3D by three.js.'),
         ),
         h('div', { class: 'menu menu-foot' }, btn('Back', () => back(), { id: 'back', cls: 'menu-back' })),
       );

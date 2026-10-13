@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dead End: sound audition</title>
+    <style>
+      html, body { margin: 0; background: #07080c; color: #e8e4da; font: 14px/1.45 ui-monospace, Menlo, monospace; }
+      main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      h2 { font-size: 16px; margin: 28px 0 8px; color: #e2ad62; }
+      p { margin: 6px 0; max-width: 75ch; }
+      a { color: #9cc7ff; }
+      button { font: inherit; color: #07080c; background: #e2ad62; border: 0; border-radius: 4px; padding: 3px 9px; margin: 2px 4px 2px 0; cursor: pointer; }
+      button.alt { background: #c9c3b6; }
+      button.file { background: #3a3f4c; color: #e8e4da; }
+      button:focus-visible { outline: 2px solid #9cc7ff; outline-offset: 2px; }
+      #start { font-size: 15px; padding: 6px 14px; }
+      #status { color: #c9c3b6; }
+      .wrap { overflow-x: auto; }
+      table { border-collapse: collapse; width: 100%; min-width: 760px; }
+      th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #262a33; }
+      th { color: #c9c3b6; font-weight: normal; }
+      td.use { max-width: 260px; }
+      td.listen { min-width: 11rem; }
+      .muted { color: #a9a395; }
+      audio { width: 280px; max-width: 100%; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dead End: sound audition</h1>
+      <p>Every recorded sound and music track in the game, with the event it plays for and its credit. <strong>In game</strong> plays the sound the way the game does (level, random pitch, layers). <strong>Synth</strong> plays the synthesized version the game falls back to. The numbered buttons play each file on its own.</p>
+      <p>To swap a sound, replace its file in <code>audio/sfx/</code> or <code>audio/music/</code>, then update <code>SAMPLES</code> or <code>TRACKS</code> in <code>src/audio.js</code> and <code>audio/CREDITS.md</code>.</p>
+      <p><button id="start" type="button">Start audio</button> <span id="status" role="status">Audio starts after you press the button.</span></p>
+
+      <h2 id="sfx-head">Sound effects</h2>
+      <div class="wrap">
+        <table aria-labelledby="sfx-head">
+          <thead><tr><th scope="col">Sound</th><th scope="col">Plays for</th><th scope="col">Listen</th><th scope="col">Source</th></tr></thead>
+          <tbody id="sfx"></tbody>
+        </table>
+      </div>
+
+      <h2 id="music-head">Music</h2>
+      <div class="wrap">
+        <table aria-labelledby="music-head">
+          <thead><tr><th scope="col">Track</th><th scope="col">Plays in</th><th scope="col">Listen</th><th scope="col">Credit</th></tr></thead>
+          <tbody id="music"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <script type="module">
+      import { createAudio, SAMPLES, SOURCES, TRACKS, sfxUrl, musicUrl } from '../src/audio.js';
+
+      // The event (and its data) that plays each sample in the game.
+      const EVENTS = {
+        shot: ['fire'],
+        bolt: ['boltFire', { foe: 'droid' }],
+        boltWarden: ['boltFire', { foe: 'warden' }],
+        clank: ['foeHit', { hp: 2 }],
+        clankHeavy: ['foeHit', { hp: 1 }],
+        boom: ['foeDie', { armored: false }],
+        zap: ['playerDie', { cause: 'wall' }],
+        powerDown: ['playerDie', { cause: 'foe' }],
+        keys: ['pickup', { kind: 'key' }],
+        bottle: ['pickup', { kind: 'life' }],
+        question: ['pickup', { kind: 'mystery' }],
+        shield: ['mystery', { outcome: 'shield' }],
+        freeze: ['mystery', { outcome: 'freeze' }],
+        saxUp: ['extraLife'],
+        saxWin: ['win'],
+        saxDown: ['gameOver'],
+        unlock: ['keyUse'],
+        door: ['doorOpen'],
+        locked: ['doorLocked'],
+        shadowSwell: ['shadowEnter'],
+        stun: ['shadowStun'],
+        shadowHurt: ['shadowHurt'],
+        shadowDown: ['shadowDefeat'],
+        hop: ['foeHop'],
+        step: ['step'],
+        uiMove: ['ui:move'],
+        uiSelect: ['ui:select'],
+        uiBack: ['ui:back'],
+      };
+
+      const audio = createAudio({ sound: true, music: false });
+      window.audio = audio;
+      let ctx = null; // this page's own context, for the per-file buttons
+      const decoded = {};
+      const statusEl = document.getElementById('status');
+
+      const el = (tag, attrs = {}, ...kids) => {
+        const n = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          if (k === 'text') n.textContent = v;
+          else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+          else n.setAttribute(k, v);
+        }
+        for (const k of kids) if (k != null) n.append(k);
+        return n;
+      };
+      const link = (href, text) => el('a', { href, rel: 'noopener', target: '_blank', text });
+
+      function start() {
+        audio.unlock();
+        if (!ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          ctx = new AC();
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        showStatus();
+      }
+
+      function showStatus() {
+        const s = audio.status();
+        statusEl.textContent = audio.running
+          ? `${s.loaded} of ${s.total} sample files loaded${s.missing.length ? `; missing: ${s.missing.join(', ')}` : ''}.`
+          : 'Audio starts after you press the button.';
+        if (audio.running && s.loaded + s.missing.length < s.total) setTimeout(showStatus, 300);
+      }
+
+      async function playFile(file) {
+        start();
+        try {
+          if (!decoded[file]) {
+            const ab = await (await fetch(sfxUrl(file))).arrayBuffer();
+            decoded[file] = await new Promise((ok, bad) => ctx.decodeAudioData(ab, ok, bad));
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = decoded[file];
+          const g = ctx.createGain();
+          g.gain.value = 0.35;
+          src.connect(g).connect(ctx.destination);
+          src.start();
+        } catch {
+          statusEl.textContent = `Couldn't play ${file}.mp3.`;
+        }
+      }
+
+      function preview(name, engine) {
+        start();
+        const [type, data = {}] = EVENTS[name];
+        audio.preview(type, data, engine);
+      }
+
+      const sfxBody = document.getElementById('sfx');
+      for (const [name, s] of Object.entries(SAMPLES)) {
+        const src = SOURCES[s.from];
+        sfxBody.append(
+          el('tr', {},
+            el('td', {}, el('strong', { text: name }), el('div', { class: 'muted', text: s.files.map((f) => `${f}.mp3`).join(', ') })),
+            el('td', { class: 'use', text: s.use }),
+            el('td', { class: 'listen' },
+              el('button', { type: 'button', onclick: () => preview(name, 'auto'), 'aria-label': `${name}: play in game` }, 'In game'),
+              el('button', { type: 'button', class: 'alt', onclick: () => preview(name, 'synth'), 'aria-label': `${name}: play the synth version` }, 'Synth'),
+              el('div', {}, ...s.files.map((f, i) => el('button', { type: 'button', class: 'file', onclick: () => playFile(f), 'aria-label': `Play ${f}.mp3` }, String(i + 1)))),
+            ),
+            el('td', {},
+              link(src.url, `${src.author}, ${src.pack}`),
+              el('div', { class: 'muted', text: `${s.orig} · ${src.license}` }),
+            ),
+          ),
+        );
+      }
+
+      const musicBody = document.getElementById('music');
+      for (const t of Object.values(TRACKS)) {
+        const player = el('audio', { controls: '', preload: 'metadata', src: musicUrl(t.file) });
+        if (t.loop) player.loop = true;
+        const len = el('div', { class: 'muted', text: '' });
+        player.addEventListener('loadedmetadata', () => {
+          const m = Math.floor(player.duration / 60);
+          const sec = Math.round(player.duration % 60);
+          len.textContent = `${m}:${String(sec).padStart(2, '0')}${t.loop ? ', loops' : `, plays ${t.repeat === 1 ? 'once' : `${t.repeat} times`} in turn`}`;
+        });
+        musicBody.append(
+          el('tr', {},
+            el('td', {}, el('strong', { text: t.title }), el('div', { class: 'muted', text: `${t.file}.mp3` })),
+            el('td', { class: 'use', text: t.use }),
+            el('td', {}, player, len),
+            el('td', {}, link(t.url, t.author), el('div', { class: 'muted', text: t.license })),
+          ),
+        );
+      }
+
+      document.getElementById('start').addEventListener('click', start);
+    </script>
+  </body>
+</html>

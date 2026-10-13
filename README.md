@@ -92,8 +92,13 @@ key's color (dashed until opened), items you left behind, and the keys you carry
 
 ## Settings and accessibility
 
-- **Sound effects** and **music** turn on and off separately. Every sound and the music
-  are synthesized in the browser; there are no audio files.
+- **Sound effects** and **music** turn on and off separately. Sound effects are CC0
+  recordings in `audio/sfx/`, with the rest synthesized in the browser. The music is CC0
+  jazz streamed from `audio/music/`: one track for the title, one per sector, and a
+  tenser loop in the lair. If a file can't load, the game plays a synthesized version
+  instead, and it never waits for audio.
+- **The Shadow's warning stays clear.** While the low pulsing warning sounds, and while
+  the Shadow is in the room, the music drops so you can hear him coming.
 - **Graphics** is Auto, High, Medium, or Low. Lower it if the game stutters.
 - **Reduced motion** follows your system setting, and you can force it on. It removes
   camera moves, room slides, and pulsing effects.
@@ -165,13 +170,45 @@ GitHub repository.
 | `src/sim/` | The deterministic simulation: game state, robots, shots, the Shadow, and tuning |
 | `src/render/` | The Three.js renderer |
 | `src/main.js` | Boot and the fixed-step game loop |
-| `src/input.js` | Keyboard, gamepad, and touch input |
+| `src/input.js` | Keyboard, mouse, gamepad, and touch input |
 | `src/hud.js` | The score, lives, keys, room, and messages during play |
 | `src/ui.js` | The title, menus, pause, map, and end screens |
 | `src/automap.js` | Draws the map screen |
-| `src/audio.js` | Synthesized sound effects and music |
+| `src/audio.js` | Sound effects and music: CC0 samples and tracks, with synthesized fallbacks |
 | `src/save.js` | Settings, checkpoint, and best score in local storage |
 | `src/scores.js` | The shared high score table |
 | `src/debug2d.js` | The 2D fallback view |
 | `src/icons.js` | Small SVG icons for the HUD and menus |
+| `audio/` | CC0 sound effects and music (credits in `audio/CREDITS.md`) |
+| `dev/sounds.html` | Plays every sound and track, with credits |
 | `tools/` | Room checks, simulation tests, and the autopilot |
+
+## Credits
+
+Dead End is a spiritual successor to Shamus by Cathryn Mataga, Synapse Software, 1982.
+3D by [three.js](https://threejs.org/).
+
+Every music track and recorded sound effect is dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). `audio/CREDITS.md` lists
+each file with its source and original name. To hear them all, serve the folder and open
+`dev/sounds.html`.
+
+The music comes from [OpenGameArt.org](https://opengameart.org/):
+
+| Track | Artist | Plays |
+|---|---|---|
+| [Moil](https://opengameart.org/content/moil) | Ruskerdax | Title screen and menus |
+| [Investigation](https://opengameart.org/content/investigation-0) | Umplix | Black Sector |
+| [jazz (saxaphone)](https://opengameart.org/content/jazz-saxaphone) | Alex McCulloch (Pro Sensory) | Blue Sector |
+| [Jazz](https://opengameart.org/content/jazz-2) | Umplix | Green Sector |
+| [Sneaking into the Robot Factory](https://opengameart.org/content/sneaky-music-pack) | Umplix | Red Sector |
+| [Spy Loop](https://opengameart.org/content/spy-loop) | wipics | The Shadow's lair |
+
+The sound effects come from [Kenney](https://kenney.nl/)'s
+[Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds),
+[Digital Audio](https://kenney.nl/assets/digital-audio),
+[Impact Sounds](https://kenney.nl/assets/impact-sounds),
+[Interface Sounds](https://kenney.nl/assets/interface-sounds),
+[RPG Audio](https://kenney.nl/assets/rpg-audio), and
+[Music Jingles](https://kenney.nl/assets/music-jingles) packs. The game synthesizes the
+rest, including the Shadow's warning.
