@@ -91,7 +91,13 @@ createGame({ skill = 1, seed = 1, from = null }) -> game   // from: a snapshot t
 stepGame(game, input)                                       // input: { x, y, fire }
 makeSnapshot(game) -> plain JSON object
 DT, faceOf(dx, dy), dirOf(face)
+newLoop(game)                    // after a win: keep score and lives, restart one skill harder
+previewMove(game, ix, iy) -> { x, y }   // where one walking step would land (autopilots)
+createGame({ ..., cheats })      // cheats: { invuln, noShadow, noFoes } from the start
 ```
+
+Like `createGame`, `newLoop` leaves its events (`roomEnter`) in `game.events`; read them
+before the next `stepGame` clears them.
 
 `input.x` and `input.y` are -1, 0, or 1 (`y` = 1 is down/south). `input.fire` is true
 while the fire button is held. Debug hooks for tests and the dev console:
@@ -136,6 +142,48 @@ game = {
 
 `player.walk` is distance walked (drive the walk cycle from it). `player.aiming` is true
 while fire is held: Shamus plants his feet and points the shiv along `face`.
+
+Firing: while fire is held, a held direction turns Shamus and fires along it, again
+whenever a shot is free (`PLAYER.maxShots`, `PLAYER.fireCooldown`); a press with no
+direction fires once along `face` (buffered until a shot frees up or fire is released).
+
+More state the sim keeps (the renderer and HUD may read any of it):
+
+- `game.cheats = { invuln, noShadow, noFoes }`. `invuln` stops robots, bolts, and the
+  Shadow; electric walls and live gates still kill.
+- `game.lairHp`: the Shadow's hits left in room 127 once the fight has started (`null`
+  before). It carries over deaths and re-entries; `newLoop` clears it. Snapshots keep it.
+- `game.trail`: the cells Shamus walked this visit (`row * 21 + col`), the sniffers' scent.
+- `room.lair` (room 127), `room.shadowCame` (he came this visit), `room.foesSpawned`
+  (robots this visit; `roomClear` needs at least one).
+- `player.fireCd`, `player.fireHeld`, `player.wantShot`: firing internals.
+- `shots[i].dx, dy` is a unit vector along one of the 8 directions.
+- `bolts[i]` also has `owner` (the id of the robot that fired it) and `life` (seconds it
+  flies; a jumper's zap is short).
+- `foes[i]` also has `r` (radius), `dur` (length of the current state, 0 when open-ended;
+  `t / dur` is its progress), `aim` (direction 0..7 it is about to fire or hop, else -1),
+  `col, row` (its cell), and `tcol, trow` (the cell it is moving to). States by type:
+  - `droid`: `'walk'`, `'pause'`, `'aim'` (stopped, `face` = `aim`, about to fire: the
+    telegraph).
+  - `drone`: `'whirl'`. `ox, oy` is its drifting center, `ang` and `rad` its angle and
+    distance from it, `spin` +1 or -1.
+  - `jumper`: `'crouch'` (facing `aim`, about to hop), `'hop'` (from `hx, hy` to the
+    center of cell `tcol, trow`; arc height from `t / dur`), `'land'` (`zap` is true
+    when it will zap along `aim` as the landing ends).
+  - `sniffer`: `'sniff'` (on your trail), `'track'` (caught up, homing in). `hp` drops
+    from 2 to 1 on a front hit; a hit from behind or the side wrecks it.
+  - `warden`: `'scan'` (turning one step at a time), `'aim'`, `'burst'`, `'rest'`.
+- `freezeT`: frozen robots stand still and are harmless to touch.
+- `shadow` also has `dur`, `hpMax` (`hp` and `hpMax` are `null` outside the lair),
+  `immuneT` (shots bounce off while it is above 0), `chaseT`, `vx, vy` (velocity), and
+  `ax, ay` (charge direction). `'enter'` means he is fading in: still, harmless, and shots
+  pass through him. In the lair he has one more state, `'charge'`: he rears back for
+  `SHADOW.lair.windup` seconds, then dashes along `ax, ay`. After each lair hit he is
+  `'stunned'` briefly, then either blinks (`shadowBlink`, then `'enter'` at the new spot)
+  or charges. While he is `'dying'`, Shamus stands still and can't be hurt.
+
+Robots and bolts can't hurt Shamus while `invulnT` (after a respawn) or `shieldT` (a
+mystery) is above 0. The Shadow ignores the shield; walls ignore both.
 
 ### Robots (`foe.type`)
 
@@ -205,6 +253,17 @@ Each is `{ type, ...fields }`. The renderer, audio, and HUD react to them.
 | `shadowDefeat` | `x, y` |
 | `itemsVanish` | |
 | `win` | `score` |
+| `boltHit` | `x, y, what` ('wall', 'block', 'pod', 'lock', 'foe', 'shield', 'freeze', 'fizzle'): a robot bolt ended |
+| `shadowBlink` | `x, y, fromX, fromY` (lair: he vanished and reappeared) |
+| `foeHop` | `id, x, y` (a jumper took off) |
+
+`type` is always the event's name. In `boltFire`, `foeHit`, and `foeDie`, the robot type
+listed as `type` in the table travels as `foe` instead (a field can't overwrite the
+event's name); `boltFire` also carries it as `from`, like a bolt. Other added fields:
+`boltFire.face`; `foeDie.by` ('shot', 'bolt', or 'blast'); `playerDie.foe` (the robot type
+when `cause` is 'foe' or 'bolt', else `null`); `pickup.color` is `null` for lives and
+mysteries; and `shotHit.what` can also be 'shadow' (he soaked it up: already stunned or
+briefly immune).
 
 ## Renderer API
 

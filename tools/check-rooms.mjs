@@ -9,13 +9,15 @@
 // map.js (one '*' for a key, mystery, or life; one 'H' for a keyhole; 'S' in room 0;
 // 'P' gates only in pod rooms); every door, the item, the keyhole, and every spawn are
 // reachable by the player's body from every door; each door's landing zone is safe;
-// and there are enough spawn points far from each door.
+// there are enough spawn points far from each door; and each pod room's gates guard
+// its bottle. Notes (not failures) flag corner-only wall contacts and items too far
+// from a door to reach before the Shadow comes.
 
 import { ROOMS, LOCKS, START_ROOM, LAIR_ROOM, POD_ROOMS, lockOn } from '../src/map.js';
 import { ROOM_DEFS } from '../src/rooms/index.js';
 import { parseRoom, placeholderDef, wallDistance, blockAt, CELL, WALL_HALF, DOOR, W, H } from '../src/room.js';
 import { entryPoint } from '../src/sim/game.js';
-import { PLAYER, FOES } from '../src/sim/tuning.js';
+import { PLAYER, FOES, SHADOW } from '../src/sim/tuning.js';
 
 const args = process.argv.slice(2);
 const show = args.includes('--show');
@@ -39,7 +41,7 @@ function fail(id, msg) {
 
 // Sample points the player's center can occupy, ignoring pod gates (they open on a timer)
 // and treating locked doors as open (the other side of a lock is a room of its own).
-function safeGrid(room) {
+function safeGrid(room, gatesOn = false) {
   const safe = new Uint8Array(NX * NY);
   for (let j = 0; j < NY; j++) {
     for (let i = 0; i < NX; i++) {
@@ -47,6 +49,7 @@ function safeGrid(room) {
       const y = j * STEP;
       if (x < 0.25 || y < 0.25 || x > W - 0.25 || y > H - 0.25) continue;
       if (wallDistance(room, x, y, CELL.WALL) < WALL_HALF + BODY) continue;
+      if (gatesOn && wallDistance(room, x, y, CELL.POD) < WALL_HALF + BODY) continue;
       if (blockAt(room, x, y, PLAYER.radius)) continue;
       safe[j * NX + i] = 1;
     }
@@ -89,6 +92,31 @@ function nearestSafe(safe, x, y, maxR = 0.6) {
     }
   }
   return best;
+}
+
+// Walking distance in room units from (x, y) to every safe point (a 4-way flood, so it
+// runs a little long on diagonals; good enough for a timing note).
+function floodDist(safe, x, y) {
+  const dist = new Float32Array(NX * NY).fill(Infinity);
+  const start = nearestSafe(safe, x, y);
+  if (start < 0) return dist;
+  dist[start] = 0;
+  const q = [start];
+  for (let h = 0; h < q.length; h++) {
+    const k = q[h];
+    const i = k % NX;
+    const j = (k - i) / NX;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ii = i + di;
+      const jj = j + dj;
+      if (ii < 0 || jj < 0 || ii >= NX || jj >= NY) continue;
+      const kk = jj * NX + ii;
+      if (!safe[kk] || dist[kk] !== Infinity) continue;
+      dist[kk] = dist[k] + STEP / 1.15;
+      q.push(kk);
+    }
+  }
+  return dist;
 }
 
 const reached = (seen, safe, x, y) => {
@@ -148,6 +176,43 @@ function checkRoom(id) {
       if (!reached(seen, safe, p.x, p.y)) fail(id, `${name} is unreachable from ${fromName}`);
     }
     if (show && fromName === starts[0][0]) printReach(room, seen);
+  }
+
+  // Walls that meet only at a corner don't join: the gap between their posts is a
+  // squeeze a player can slip through. Usually a mistake, so say where.
+  const wallAt = (c, r) => room.layout[r]?.[c] === '#';
+  for (let r = 0; r < H - 1; r++) {
+    for (let c = 0; c < W - 1; c++) {
+      const a = wallAt(c, r) && wallAt(c + 1, r + 1) && !wallAt(c + 1, r) && !wallAt(c, r + 1);
+      const b = wallAt(c + 1, r) && wallAt(c, r + 1) && !wallAt(c, r) && !wallAt(c + 1, r + 1);
+      if (a || b) warn.push(`room ${id}: walls at ${c},${r} meet only at a corner, leaving a squeeze`);
+    }
+  }
+
+  // A pod gate must guard something: with every gate on, the item is out of reach from
+  // at least one door.
+  if (meta.pod && room.itemSpot) {
+    const closed = safeGrid(room, true);
+    const open = doors.filter((side) => {
+      const e = entryPoint(room, side);
+      return reached(flood(closed, e.x, e.y), closed, room.itemSpot.x, room.itemSpot.y);
+    });
+    if (open.length === doors.length) fail(id, `its pod gates guard nothing: the bottle is reachable from every door with the gates on`);
+  }
+
+  // The Shadow's clock: a round trip from the nearest door to the item or keyhole should
+  // fit in the time before he comes (Gumshoe), or the room can't be done in one visit.
+  for (const [name, spot] of [['item', room.itemSpot], ['keyhole', room.keyholeSpot]]) {
+    if (!spot || !doors.length) continue;
+    let best = Infinity;
+    for (const side of doors) {
+      const e = entryPoint(room, side);
+      const k = nearestSafe(safe, spot.x, spot.y);
+      if (k >= 0) best = Math.min(best, floodDist(safe, e.x, e.y)[k]);
+    }
+    const trip = (2 * best) / PLAYER.speed[meta.zone];
+    const limit = SHADOW.time[meta.zone];
+    if (trip > limit * 0.85) warn.push(`room ${id}: the ${name} is a ${trip.toFixed(1)} s round trip from the nearest door; the Shadow comes at ${limit} s`);
   }
 
   // Landing zones: everything within 1.1 of each door's entry line is safe, and the

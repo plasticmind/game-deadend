@@ -1,20 +1,26 @@
 // The game state and its fixed-step update. Deterministic: same seed, same inputs,
 // same game. No DOM, no Three.js, no clocks; tools/sim-test.mjs runs it in Node.
 // docs/DESIGN.md lists every field the renderer and the shell may read.
+//
+// Robots live in foes.js, shots and bolts in shots.js, the Shadow in shadow.js, and
+// the helpers they share (events, score, death) in core.js.
 
 import { ROOMS, START_ROOM, OPPOSITE, LOCKS, lockOn } from '../map.js';
 import { getRoom } from '../rooms/index.js';
-import { DOOR, LOCK_FACE, touchesWall, touchesPod, pushOutOfBlocks } from '../room.js';
-import { DT, SKILLS, PLAYER, SCORE, SHADOW } from './tuning.js';
+import { W, DOOR, LOCK_FACE, touchesWall, touchesPod, pushOutOfBlocks } from '../room.js';
+import { DT, SKILLS, PLAYER, SCORE, SHADOW, MYSTERY } from './tuning.js';
 import { rand } from './rng.js';
+import { emit, banner, addScore, gainLife, canHurt, killPlayer, faceOf, dirOf } from './core.js';
+import { spawnFoes, updateFoes } from './foes.js';
+import { tryFire, updateProjectiles } from './shots.js';
+import { updateShadowClock, updateShadow, summonShadow } from './shadow.js';
 
-export { DT };
+export { DT, emit, banner, addScore, killPlayer, faceOf, dirOf };
 
-const DIRS = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-export const faceOf = (dx, dy) => (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
-export const dirOf = (face) => DIRS[face];
+const TRAIL_MAX = 400; // cells of scent a sniffer can follow in one visit
 
-export function createGame({ skill = 1, seed = 1, from = null } = {}) {
+// cheats: { invuln, noShadow, noFoes } to start with (tests and the dev console).
+export function createGame({ skill = 1, seed = 1, from = null, cheats = null } = {}) {
   const sk = SKILLS[skill];
   const game = {
     version: 1,
@@ -32,21 +38,25 @@ export function createGame({ skill = 1, seed = 1, from = null } = {}) {
     opened: {}, // lock id (the keyhole room's id) -> true once unlocked
     visited: {}, // room id -> true
     zoneReached: 1,
+    lairHp: null, // the Shadow's hits left in the lair once the fight has started
     checkpoint: null, // snapshot taken on first entry to each sector; the shell saves it
     room: null,
     player: {
       x: 0, y: 0, r: PLAYER.radius, face: 0, moving: false, aiming: false,
       alive: true, deadT: 0, invulnT: 0, shieldT: 0, boost: false, walk: 0, fireCd: 0,
+      fireHeld: false, wantShot: false,
     },
     shots: [],
     bolts: [],
     foes: [],
     shadow: null,
     item: null,
+    trail: [], // cells Shamus walked this visit, oldest first (the sniffers' scent)
     events: [],
     banner: null,
     freezeT: 0,
     stats: { kills: 0, deaths: 0, cleared: 0, time: 0 },
+    cheats: { invuln: false, noShadow: false, noFoes: false, ...cheats },
     nextId: 1,
   };
   if (from) restore(game, from);
@@ -69,6 +79,7 @@ export function makeSnapshot(game) {
     opened: { ...game.opened },
     visited: { ...game.visited },
     zoneReached: game.zoneReached,
+    lairHp: game.lairHp,
     roomId: game.room.id,
     from: game.room.from,
     stats: { ...game.stats },
@@ -86,24 +97,30 @@ function restore(game, s) {
   Object.assign(game.opened, s.opened);
   Object.assign(game.visited, s.visited);
   game.zoneReached = s.zoneReached ?? 1;
+  game.lairHp = s.lairHp ?? null;
   if (s.stats) Object.assign(game.stats, s.stats);
 }
 
-export function emit(game, type, data = {}) {
-  game.events.push({ type, ...data });
-}
-
-export function banner(game, text, color = null, dur = 2.2) {
-  game.banner = { text, color, t: 0, dur };
-}
-
-export function addScore(game, points) {
-  game.score += points;
-  while (game.score >= game.nextLifeAt) {
-    game.nextLifeAt += SCORE.extraLifeEvery;
-    game.lives++;
-    emit(game, 'extraLife', { reason: 'score' });
-  }
+// After a win: keep the score and lives, forget the lair, and start again one skill
+// level harder (the original restarts harder too). The shell calls this from the win
+// screen.
+export function newLoop(game) {
+  game.loop++;
+  game.skill = Math.min(SKILLS.length - 1, game.skill + 1);
+  for (const k of Object.keys(game.keys)) game.keys[k] = 0;
+  for (const bag of [game.taken, game.opened, game.visited]) for (const k of Object.keys(bag)) delete bag[k];
+  game.zoneReached = 1;
+  game.lairHp = null;
+  game.mode = 'play';
+  const p = game.player;
+  p.alive = true;
+  p.deadT = 0;
+  p.invulnT = 0;
+  p.shieldT = 0;
+  game.events.length = 0;
+  enterRoom(game, START_ROOM, null);
+  game.checkpoint = makeSnapshot(game);
+  banner(game, `CASE ${game.loop + 1}: ${SKILLS[game.skill].name.toUpperCase()}`, null, 3);
 }
 
 // Where the player stands on arrival through `side` (null for the start of the game).
@@ -131,6 +148,7 @@ export function enterRoom(game, id, side, along = null) {
     if (lock) locks[s] = { color: lock.color, lockId: lock.id, open: !!game.opened[lock.id] };
   }
   const shadowAt = SHADOW.time[meta.zone] * sk.shadowTime;
+  const lair = !!meta.lair;
   game.room = {
     id,
     zone: meta.zone,
@@ -139,10 +157,13 @@ export function enterRoom(game, id, side, along = null) {
     from: side,
     entry: entryPoint(geo, side, along),
     t: 0,
-    shadowAt: meta.lair ? 2.5 : shadowAt,
-    warnAt: meta.lair ? 0 : Math.max(0, shadowAt - SHADOW.warn),
+    lair,
+    shadowAt: lair ? SHADOW.lair.delay : shadowAt,
+    warnAt: lair ? 0 : Math.max(0, shadowAt - SHADOW.warn),
     warned: false,
+    shadowCame: false,
     cleared: false,
+    foesSpawned: 0,
     itemsHidden: false,
     podOn: true,
     locks,
@@ -153,11 +174,14 @@ export function enterRoom(game, id, side, along = null) {
   p.aiming = false;
   p.boost = false;
   p.fireCd = 0;
+  p.wantShot = false;
   game.shots.length = 0;
   game.bolts.length = 0;
   game.foes.length = 0;
   game.shadow = null;
   game.freezeT = 0;
+  game.trail.length = 0;
+  game.trail.push(Math.floor(p.y) * W + Math.floor(p.x));
   game.item = makeItem(game, meta, geo);
 
   const firstVisit = !game.visited[id];
@@ -183,17 +207,10 @@ function makeItem(game, meta, geo) {
   return { kind: it.kind, color: it.color ?? null, x: geo.itemSpot.x, y: geo.itemSpot.y, hidden: false, used: false };
 }
 
-// ------------------------------------------------------------------ hooks for foes and the Shadow
-// src/sim/foes.js, shots.js, and shadow.js fill these in.
-
-function spawnFoes(game) {
-  void game;
-}
-
 // ------------------------------------------------------------------ the step
 
 // input: { x: -1|0|1, y: -1|0|1, fire: boolean }
-export function stepGame(game, input) {
+export function stepGame(game, input = {}) {
   game.events.length = 0;
   if (game.mode === 'gameover' || game.mode === 'won') return;
   game.step++;
@@ -208,13 +225,23 @@ export function stepGame(game, input) {
   updatePods(game);
 
   if (game.mode === 'dying') {
+    // The world holds still while Shamus goes down.
     const p = game.player;
     p.deadT += DT;
     if (p.deadT >= PLAYER.deathTime) respawn(game);
     return;
   }
 
+  const serial = room.serial;
   updatePlayer(game, input);
+  if (game.room.serial !== serial || game.mode !== 'play') return;
+  updateShadowClock(game);
+  updateShadow(game);
+  if (game.mode !== 'play') return;
+  updateFoes(game);
+  if (game.mode !== 'play') return;
+  updateProjectiles(game);
+  if (game.freezeT > 0) game.freezeT = Math.max(0, game.freezeT - DT);
 }
 
 function updatePods(game) {
@@ -235,40 +262,63 @@ function updatePlayer(game, input) {
   p.invulnT = Math.max(0, p.invulnT - DT);
   p.shieldT = Math.max(0, p.shieldT - DT);
 
-  const ix = Math.sign(input.x || 0);
-  const iy = Math.sign(input.y || 0);
-  p.aiming = !!input.fire;
+  // While the beaten Shadow goes down, Shamus watches (and can't wander out of the lair
+  // before the win).
+  const held = game.shadow && game.shadow.state === 'dying';
+  const ix = held ? 0 : Math.sign(input.x || 0);
+  const iy = held ? 0 : Math.sign(input.y || 0);
+  const fire = held ? false : !!input.fire;
+  // Fire plants Shamus's feet. A held direction aims and fires along it (again and
+  // again while held); a press with no direction fires once along his facing.
+  if (fire && !p.fireHeld) p.wantShot = true;
+  if (!fire) p.wantShot = false;
+  p.fireHeld = fire;
+  p.aiming = fire;
   p.moving = false;
   if (ix || iy) p.face = faceOf(ix, iy);
+  if (fire && (ix || iy || p.wantShot) && tryFire(game)) p.wantShot = false;
 
   if (!p.aiming && (ix || iy)) {
-    const speed = PLAYER.speed[room.zone] * (p.boost ? PLAYER.clearBoost : 1);
-    const len = Math.hypot(ix, iy);
-    const dx = (ix / len) * speed * DT;
-    const dy = (iy / len) * speed * DT;
-    let nx = p.x + dx;
-    let ny = p.y;
-    ({ x: nx, y: ny } = pushOutOfBlocks(geo, nx, ny, p.r));
-    ny += dy;
-    ({ x: nx, y: ny } = pushOutOfBlocks(geo, nx, ny, p.r));
-    ({ x: nx, y: ny } = clampToLocks(room, nx, ny, p.r));
+    const { x: nx, y: ny } = previewMove(game, ix, iy);
     p.moving = Math.hypot(nx - p.x, ny - p.y) > 1e-4;
     p.walk += Math.hypot(nx - p.x, ny - p.y);
     p.x = nx;
     p.y = ny;
+    const cell = Math.floor(p.y) * W + Math.floor(p.x);
+    const trail = game.trail;
+    if (trail[trail.length - 1] !== cell && trail.length < TRAIL_MAX) trail.push(cell);
   }
 
   // Electric walls and live pod gates kill on contact.
-  if (touchesWall(geo, p.x, p.y, PLAYER.wallRadius)) return killPlayer(game, 'wall');
-  if (room.podOn && touchesPod(geo, p.x, p.y, PLAYER.wallRadius)) return killPlayer(game, 'pod');
+  if (touchesWall(geo, p.x, p.y, PLAYER.wallRadius) && canHurt(game, 'wall')) return killPlayer(game, 'wall');
+  if (room.podOn && touchesPod(geo, p.x, p.y, PLAYER.wallRadius) && canHurt(game, 'pod')) return killPlayer(game, 'pod');
 
   touchItem(game);
   checkDoors(game);
 }
 
+// Where one step of walking along (ix, iy) takes Shamus: blocks push him aside and
+// locked doors stop him. Autopilots (tools/tour.mjs) use it to look before they step.
+export function previewMove(game, ix, iy) {
+  const p = game.player;
+  const room = game.room;
+  const geo = room.geo;
+  const speed = PLAYER.speed[room.zone] * (p.boost ? PLAYER.clearBoost : 1);
+  const len = Math.hypot(ix, iy) || 1;
+  const dx = (ix / len) * speed * DT;
+  const dy = (iy / len) * speed * DT;
+  let nx = p.x + dx;
+  let ny = p.y;
+  ({ x: nx, y: ny } = pushOutOfBlocks(geo, nx, ny, p.r));
+  ny += dy;
+  ({ x: nx, y: ny } = pushOutOfBlocks(geo, nx, ny, p.r));
+  return clampToLocks(room, nx, ny, p.r);
+}
+
 // A locked door is a solid (but harmless) colored barrier across its opening.
 function clampToLocks(room, x, y, r) {
-  for (const [side, lock] of Object.entries(room.locks)) {
+  for (const side in room.locks) {
+    const lock = room.locks[side];
     if (lock.open) continue;
     const d = DOOR[side];
     const inDoorway = d.axis === 'x' ? x > d.min - 0.2 && x < d.max + 0.2 : y > d.min - 0.2 && y < d.max + 0.2;
@@ -315,28 +365,58 @@ function touchItem(game) {
     emit(game, 'pickup', { kind: 'key', color: it.color, x: it.x, y: it.y });
     banner(game, `${it.color.toUpperCase()} KEY`, it.color);
   } else if (it.kind === 'life') {
-    game.lives++;
     addScore(game, SCORE.life);
-    emit(game, 'pickup', { kind: 'life', x: it.x, y: it.y });
-    emit(game, 'extraLife', { reason: 'bottle' });
+    emit(game, 'pickup', { kind: 'life', color: null, x: it.x, y: it.y });
+    if (gainLife(game, 'bottle')) banner(game, 'EXTRA LIFE');
   } else if (it.kind === 'mystery') {
-    emit(game, 'pickup', { kind: 'mystery', x: it.x, y: it.y });
+    emit(game, 'pickup', { kind: 'mystery', color: null, x: it.x, y: it.y });
     mystery(game, it);
   }
 }
 
-// Bonus or disaster. src/sim/foes.js and shadow.js add the outcomes that need them.
+// Bonus or disaster: points (most often), a life, a shield, frozen robots, or the
+// Shadow, right now. An outcome that would do nothing turns into points.
 function mystery(game, it) {
-  const points = (1 + Math.floor(rand(game) * 10)) * 100 * game.room.zone;
-  addScore(game, points);
-  emit(game, 'mystery', { outcome: 'points', points, x: it.x, y: it.y });
-  banner(game, `+${points}`);
+  const room = game.room;
+  let total = 0;
+  for (const [, w] of MYSTERY.weights) total += w;
+  let u = rand(game) * total;
+  let outcome = 'points';
+  for (const [name, w] of MYSTERY.weights) {
+    u -= w;
+    if (u < 0) { outcome = name; break; }
+  }
+  if (outcome === 'life' && game.lives >= PLAYER.maxLives) outcome = 'points';
+  if (outcome === 'freeze' && !game.foes.length) outcome = 'points';
+  if (outcome === 'shadow' && (room.shadowCame || room.lair || game.cheats.noShadow)) outcome = 'points';
+  let points = 0;
+  if (outcome === 'points') {
+    points = (1 + Math.floor(rand(game) * 10)) * 100 * room.zone;
+    addScore(game, points);
+    banner(game, `+${points}`);
+  } else if (outcome === 'life') {
+    gainLife(game, 'mystery');
+    banner(game, 'EXTRA LIFE');
+  } else if (outcome === 'shield') {
+    game.player.shieldT = MYSTERY.shield;
+    banner(game, 'SHIELD');
+  } else if (outcome === 'freeze') {
+    game.freezeT = MYSTERY.freeze;
+    for (const b of game.bolts) emit(game, 'boltHit', { x: b.x, y: b.y, what: 'freeze' });
+    game.bolts.length = 0;
+    banner(game, 'ROBOTS FROZEN');
+  } else if (outcome === 'shadow') {
+    summonShadow(game, MYSTERY.shadowDelay);
+    banner(game, 'THE SHADOW!');
+  }
+  emit(game, 'mystery', { outcome, points, x: it.x, y: it.y });
 }
 
 function checkDoors(game) {
   const p = game.player;
   const room = game.room;
-  for (const [side, exit] of Object.entries(room.geo.exits)) {
+  for (const side in room.geo.exits) {
+    const exit = room.geo.exits[side];
     const d = DOOR[side];
     const crossed =
       (side === 'N' && p.y < d.line) || (side === 'S' && p.y > d.line) ||
@@ -347,16 +427,6 @@ function checkDoors(game) {
     enterRoom(game, exit.to, OPPOSITE[side], along);
     return;
   }
-}
-
-export function killPlayer(game, cause) {
-  const p = game.player;
-  if (!p.alive) return;
-  p.alive = false;
-  p.deadT = 0;
-  game.mode = 'dying';
-  game.stats.deaths++;
-  emit(game, 'playerDie', { cause, x: p.x, y: p.y });
 }
 
 function respawn(game) {

@@ -90,7 +90,9 @@ export function parseRoom(def, meta = ROOMS[def.id]) {
         posts.push({ c, r, x, y, arms: armsOf(c, r, isWall) });
       } else if (ch === 'P') {
         solid[i] = CELL.POD;
-        podPosts.push({ c, r, x, y, arms: armsOf(c, r, isPod) });
+        // A gate joins its fellow gates and the walls it spans between, so no seam is
+        // left at the joint while it is on.
+        podPosts.push({ c, r, x, y, arms: armsOf(c, r, (cc, rr) => isPod(cc, rr) || isWall(cc, rr)) });
       } else if (BLOCKS[ch]) {
         solid[i] = CELL.BLOCK;
         blocks.push({ c, r, x, y, kind: BLOCKS[ch] });
@@ -126,7 +128,7 @@ export function parseRoom(def, meta = ROOMS[def.id]) {
     posts, // electric wall posts with their arm bits
     beams: beamsOf(posts),
     podPosts,
-    podBeams: beamsOf(podPosts),
+    podBeams: podBeamsOf(podPosts, isWall),
     blocks,
     decor,
     spawns,
@@ -147,6 +149,17 @@ function beamsOf(posts) {
   for (const p of posts) {
     if (p.arms & ARM.E) out.push({ x1: p.x, y1: p.y, x2: p.x + 1, y2: p.y });
     if (p.arms & ARM.S) out.push({ x1: p.x, y1: p.y, x2: p.x, y2: p.y + 1 });
+  }
+  return out;
+}
+
+// Gate beams: between gates once, and from a gate to every wall post beside it (wall
+// posts never beam toward a gate, so these are the only beams at that joint).
+function podBeamsOf(podPosts, isWall) {
+  const out = beamsOf(podPosts);
+  for (const p of podPosts) {
+    if (p.arms & ARM.W && isWall(p.c - 1, p.r)) out.push({ x1: p.x - 1, y1: p.y, x2: p.x, y2: p.y });
+    if (p.arms & ARM.N && isWall(p.c, p.r - 1)) out.push({ x1: p.x, y1: p.y - 1, x2: p.x, y2: p.y });
   }
   return out;
 }
@@ -186,7 +199,13 @@ function distToSeg(px, py, x1, y1, x2, y2) {
 function distToCellShape(room, c, r, px, py, kind) {
   const x = c + 0.5;
   const y = r + 0.5;
-  const same = (cc, rr) => cc >= 0 && rr >= 0 && cc < W && rr < H && room.solid[rr * W + cc] === kind;
+  // A gate's arms also reach toward the walls it joins (half of each such beam is the
+  // gate's, live only while it is on).
+  const same = (cc, rr) => {
+    if (cc < 0 || rr < 0 || cc >= W || rr >= H) return false;
+    const k = room.solid[rr * W + cc];
+    return k === kind || (kind === CELL.POD && k === CELL.WALL);
+  };
   let d = Math.hypot(px - x, py - y);
   if (same(c, r - 1)) d = Math.min(d, distToSeg(px, py, x, y, x, y - 0.5));
   if (same(c + 1, r)) d = Math.min(d, distToSeg(px, py, x, y, x + 0.5, y));
