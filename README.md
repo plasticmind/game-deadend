@@ -93,10 +93,12 @@ key's color (dashed until opened), items you left behind, and the keys you carry
 ## Settings and accessibility
 
 - **Sound effects** and **music** turn on and off separately. Sound effects are CC0
-  recordings in `audio/sfx/`, with the rest synthesized in the browser. The music is CC0
-  jazz streamed from `audio/music/`: one track for the title, one per sector, and a
-  tenser loop in the lair. If a file can't load, the game plays a synthesized version
-  instead, and it never waits for audio.
+  recordings in `audio/sfx/`, with the rest synthesized in the browser. The music is jazz
+  (CC0, plus one CC BY track) streamed from `audio/music/`: one for the title, one per
+  sector, a sneaking track while the Shadow is on your trail, and a tenser loop in the
+  lair. Tracks crossfade, and a track you come back to picks up where it left off. If a
+  file can't load, the game plays a synthesized version instead, and it never waits for
+  audio.
 - **The Shadow's warning stays clear.** While the low pulsing warning sounds, and while
   the Shadow is in the room, the music drops so you can hear him coming.
 - **Graphics** is Auto, High, Medium, or Low. Lower it if the game stutters.
@@ -188,9 +190,10 @@ GitHub repository.
 Dead End is a spiritual successor to Shamus by Cathryn Mataga, Synapse Software, 1982.
 3D by [three.js](https://threejs.org/).
 
-Every music track and recorded sound effect is dedicated to the public domain under
-[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). `audio/CREDITS.md` lists
-each file with its source and original name. To hear them all, serve the folder and open
+Every music track and recorded sound effect but one is dedicated to the public domain
+under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); the exception, "Midnight
+Creeping in the Alchemy Lab," is [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+`audio/CREDITS.md` lists each file with its source, original name, and changes. To hear them all, serve the folder and open
 `dev/sounds.html`.
 
 The music comes from [OpenGameArt.org](https://opengameart.org/):
@@ -202,6 +205,7 @@ The music comes from [OpenGameArt.org](https://opengameart.org/):
 | [jazz (saxaphone)](https://opengameart.org/content/jazz-saxaphone) | Alex McCulloch (Pro Sensory) | Blue Sector |
 | [Jazz](https://opengameart.org/content/jazz-2) | Umplix | Green Sector |
 | [Sneaking into the Robot Factory](https://opengameart.org/content/sneaky-music-pack) | Umplix | Red Sector |
+| [Midnight Creeping in the Alchemy Lab](https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland) | glitchart, remixing "Midnight Creeping" composed by Jonathan Shaw ([www.jshaw.co.uk](https://www.jshaw.co.uk)) and "Alchemy Lab" by tcarisland ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); converted to MP3 and leveled) | While the Shadow is on your trail |
 | [Spy Loop](https://opengameart.org/content/spy-loop) | wipics | The Shadow's lair |
 
 The sound effects come from [Kenney](https://kenney.nl/)'s

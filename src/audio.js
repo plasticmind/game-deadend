@@ -2,10 +2,11 @@
 // (audio/sfx/, all CC0) where a recording beats the synth; everything else, and every
 // sample that hasn't loaded yet or failed to load, is synthesized with WebAudio. Loops come
 // from state: the Shadow's low pulsing warning, his drone while he is in the room, the pod
-// gate hum, and footsteps. Music is CC0 jazz streamed from audio/music/ through one <audio>
-// element: a title track, a track per sector that rotates as you play, and a tenser loop
-// in the Shadow's lair. If a track can't play, a procedural noir loop (a walking bass
-// under brushed hi-hats) takes over. audio/CREDITS.md lists every file.
+// gate hum, and footsteps. Music is jazz streamed from audio/music/ through two <audio>
+// elements that crossfade: a title track, a track per sector that rotates as you play,
+// a sneaking track while the Shadow is on your trail, and a tenser loop in his lair. If a
+// track can't play, a procedural noir loop (a walking bass under brushed hi-hats) takes
+// over. audio/CREDITS.md lists every file and its license.
 //
 //   const audio = createAudio(settings);
 //   audio.unlock();                 // on the first key, tap, or button (browser rule)
@@ -22,7 +23,8 @@ const MUSIC_LEVEL = 0.5;
 const TRACK_LEVEL = 0.67; // the music files sit at -18 LUFS; this plays them 2 dB above the synth loop
 const DUCK = 0.3; // music level under the Shadow's warning and while he is in the room
 const DUCK_LAIR = 0.6; // he is always there in the lair, so its track only dips
-const FADE = 0.8; // seconds to fade out a track before the next one starts
+const XFADE = 2.5; // seconds a crossfade between tracks takes
+const TRAIL_HOLD = 15; // seconds of play the Shadow's music lasts after he's gone
 const TEMPO = [84, 96, 106, 118, 132]; // synth music: title, then by sector
 
 // Walking bass, one note per beat, eight bars: Am7 Dm7 E7 Am7 | Dm7 G7 Cmaj7 E7.
@@ -87,12 +89,18 @@ export const SAMPLES = {
 
 // Music in audio/music/. `loop` tracks repeat until the scene changes; sector tracks play
 // `repeat` times, then the next sector's track takes over, so a long stay doesn't wear one out.
+// Every track is CC0 except `creeping`, which is CC BY 4.0 and credited in the game.
 export const TRACKS = {
   title: { file: 'title', title: 'Moil', author: 'Ruskerdax', license: CC0, url: 'https://opengameart.org/content/moil', use: 'Title screen, menus, and end screens', loop: true },
   'sector-1': { file: 'sector-1', title: 'Investigation', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/investigation-0', use: 'Black Sector', repeat: 2 },
   'sector-2': { file: 'sector-2', title: 'jazz (saxaphone)', author: 'Alex McCulloch (Pro Sensory)', license: CC0, url: 'https://opengameart.org/content/jazz-saxaphone', use: 'Blue Sector', repeat: 1 },
   'sector-3': { file: 'sector-3', title: 'Jazz', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/jazz-2', use: 'Green Sector', repeat: 1 },
   'sector-4': { file: 'sector-4', title: 'Sneaking into the Robot Factory', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/sneaky-music-pack', use: 'Red Sector', repeat: 2 },
+  creeping: {
+    file: 'creeping', title: 'Midnight Creeping in the Alchemy Lab', author: 'glitchart, remixing Jonathan Shaw (jshaw.co.uk) and tcarisland',
+    license: 'CC BY 4.0', url: 'https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland',
+    use: 'The Shadow on your trail: from when he shows up until 15 seconds after he is gone', loop: true,
+  },
   lair: { file: 'lair', title: 'Spy Loop', author: 'wipics', license: CC0, url: 'https://opengameart.org/content/spy-loop', use: "The Shadow's lair (room 127)", loop: true },
 };
 const ROTATION = ['sector-1', 'sector-2', 'sector-3', 'sector-4'];
@@ -165,11 +173,11 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       ms.next = ctx.currentTime + 0.1;
       decodeAll();
-      makeDeck();
+      makeDecks();
     }
     if (ctx.state === 'suspended' && !context) ctx.resume().catch(() => {});
     // iOS lets a media element start only from a tap or key: start (or retry) it here.
-    if (deck.el && musicOn && !paused && (deck.blocked || !deck.name)) startDeck();
+    if (decks.length && musicOn && !paused && (!cur || cur.blocked)) startDeck();
   }
 
   function decodeAll() {
@@ -390,79 +398,136 @@ export function createAudio({ sound = true, music = true, context = null } = {})
 
   // ------------------------------------------------------------------ music tracks
 
-  // One <audio> element streams the current track into the music bus through Web Audio, so
-  // the music setting, pausing, and ducking all work on one gain node. A track change fades
-  // the old track out, swaps the source, and fades the new one in.
-  const deck = { el: null, gain: null, name: null, state: 'idle', fadeUntil: 0, pending: false, blocked: false, quietSince: 0 };
+  // Two <audio> elements ("decks") stream tracks into the music bus through Web Audio, so
+  // the music setting, pausing, and ducking all work on one gain node. A change of track
+  // is a crossfade: the new track starts on the free deck and fades in once it is
+  // actually playing, while the old one fades out, so the music never drops out between
+  // scenes. Each track remembers where it stopped, so a sector's track picks up where it
+  // left off after the Shadow's music.
+  const decks = [];
+  let cur = null; // the deck holding the track the game wants
   const failed = {};
+  const resumeAt = {}; // track -> seconds into it where it last stopped
   let lastWant = 'title';
+  let quietSince = 0;
   const rot = { zone: 0, idx: 0, plays: 0 };
+  const trail = { game: null, until: -1 }; // the Shadow's music plays until game.t passes `until`
 
-  function makeDeck() {
-    if (deck.el || context || typeof Audio === 'undefined' || typeof ctx.createMediaElementSource !== 'function') return;
+  function makeDecks() {
+    if (decks.length || context || typeof Audio === 'undefined' || typeof ctx.createMediaElementSource !== 'function') return;
     try {
-      const el = new Audio();
-      el.preload = 'auto';
-      const node = ctx.createMediaElementSource(el);
-      deck.gain = ctx.createGain();
-      deck.gain.gain.value = 0;
-      node.connect(deck.gain).connect(mus);
-      el.addEventListener('playing', () => {
-        deck.state = 'playing';
-        deck.gain.gain.setTargetAtTime(TRACK_LEVEL, ctx.currentTime, 0.3);
-      });
-      el.addEventListener('error', () => {
-        if (deck.name) failed[deck.name] = true;
-        deck.state = 'failed';
-      });
-      el.addEventListener('ended', onEnded);
-      deck.el = el;
+      for (let i = 0; i < 2; i++) {
+        const el = new Audio();
+        el.preload = 'auto';
+        const d = { el, gain: ctx.createGain(), name: null, state: 'idle', pending: false, blocked: false, stopAt: 0 };
+        d.gain.gain.value = 0;
+        ctx.createMediaElementSource(el).connect(d.gain).connect(mus);
+        el.addEventListener('playing', () => {
+          if (d !== cur) return;
+          d.state = 'playing';
+          fadeIn(d);
+        });
+        // A track coming back starts where it stopped.
+        el.addEventListener('loadedmetadata', () => {
+          const at = resumeAt[d.name];
+          if (at > 0 && at < (el.duration || 0) - 3) {
+            try {
+              el.currentTime = at;
+            } catch {
+              // Can't seek this stream: start from the top.
+            }
+          }
+        });
+        el.addEventListener('error', () => {
+          if (!d.name) return;
+          failed[d.name] = true;
+          d.state = 'failed';
+          // The synth loop takes over (synthMusic), so let the old track go.
+          if (d === cur) for (const o of decks) if (o !== d) fadeOut(o);
+        });
+        el.addEventListener('ended', () => onEnded(d));
+        decks.push(d);
+      }
     } catch {
-      deck.el = null;
+      decks.length = 0;
     }
   }
 
-  function load(name) {
-    deck.name = name;
-    deck.fadeUntil = 0;
-    deck.gain.gain.cancelScheduledValues(ctx.currentTime);
-    deck.gain.gain.setValueAtTime(0, ctx.currentTime);
-    if (!name) {
-      deck.el.pause();
-      deck.state = 'idle';
-      return;
-    }
+  // Bring deck `d` up to full and fade every other deck out.
+  function fadeIn(d) {
+    d.stopAt = 0;
+    d.gain.gain.setTargetAtTime(TRACK_LEVEL, ctx.currentTime, XFADE / 4);
+    for (const o of decks) if (o !== d) fadeOut(o);
+  }
+
+  function fadeOut(d) {
+    if (d.stopAt || d.el.paused) return;
+    d.gain.gain.setTargetAtTime(0, ctx.currentTime, XFADE / 4);
+    d.stopAt = ctx.currentTime + XFADE;
+  }
+
+  // Pause deck `d` and remember where its track was.
+  function stop(d) {
+    if (d.name && !d.el.paused) resumeAt[d.name] = d.el.currentTime;
+    d.el.pause();
+    d.stopAt = 0;
+    d.gain.gain.cancelScheduledValues(ctx.currentTime);
+    d.gain.gain.setValueAtTime(0, ctx.currentTime);
+  }
+
+  function load(d, name) {
+    if (!d.el.paused) stop(d);
+    d.name = name;
+    d.stopAt = 0;
+    d.blocked = false;
+    d.gain.gain.cancelScheduledValues(ctx.currentTime);
+    d.gain.gain.setValueAtTime(0, ctx.currentTime);
     if (failed[name]) {
-      deck.el.pause();
-      deck.state = 'failed';
+      d.state = 'failed';
       return;
     }
-    deck.state = 'loading';
-    deck.el.loop = !!TRACKS[name].loop;
-    deck.el.src = musicUrl(TRACKS[name].file);
+    d.state = 'loading';
+    d.el.loop = !!TRACKS[name].loop;
+    d.el.src = musicUrl(TRACKS[name].file);
   }
 
-  function playDeck() {
-    if (!deck.el || deck.pending || deck.state === 'failed' || deck.state === 'idle' || deck.state === 'ended') return;
+  // Make `name` the wanted track: reuse a deck that still holds it (even mid-fade-out),
+  // or load it on the free deck. Its 'playing' event starts the crossfade.
+  function switchTo(name) {
+    let d = decks.find((x) => x.name === name && x.state !== 'failed' && x.state !== 'ended');
+    if (d) {
+      cur = d;
+      if (d.state === 'playing' && !d.el.paused) fadeIn(d);
+    } else {
+      d = decks.find((x) => x !== cur) || decks[0];
+      load(d, name);
+      cur = d;
+      if (d.state === 'failed') for (const o of decks) if (o !== d) fadeOut(o);
+    }
+    if (musicOn && !paused) playDeck(d);
+  }
+
+  function playDeck(d) {
+    if (!d || d.pending || d.state === 'failed' || d.state === 'idle' || d.state === 'ended') return;
     let p;
     try {
-      p = deck.el.play();
+      p = d.el.play();
     } catch {
       return;
     }
     if (!p || typeof p.then !== 'function') return;
-    deck.pending = true;
+    d.pending = true;
     p.then(
       () => {
-        deck.pending = false;
+        d.pending = false;
       },
       (err) => {
-        deck.pending = false;
+        d.pending = false;
         const why = err && err.name;
-        if (why === 'NotAllowedError') deck.blocked = true; // wait for the next tap or key
+        if (why === 'NotAllowedError') d.blocked = true; // wait for the next tap or key
         else if (why === 'NotSupportedError') {
-          if (deck.name) failed[deck.name] = true;
-          deck.state = 'failed';
+          if (d.name) failed[d.name] = true;
+          d.state = 'failed';
         }
       },
     );
@@ -471,36 +536,48 @@ export function createAudio({ sound = true, music = true, context = null } = {})
   // Load the track the game wants (if nothing is loaded) and play it. Called from a tap,
   // key, or settings change, so it counts as a user gesture on iOS.
   function startDeck() {
-    if (!deck.name) load(lastWant);
-    deck.blocked = false;
-    playDeck();
+    if (!cur) switchTo(lastWant);
+    for (const d of decks) d.blocked = false;
+    playDeck(cur);
   }
 
   // Stop streaming once the music bus has faded out. Timers still run in a hidden tab,
   // where the frame hook doesn't.
   function quietDeckSoon() {
     setTimeout(() => {
-      if (deck.el && (paused || !musicOn)) deck.el.pause();
+      if (paused || !musicOn) for (const d of decks) if (!d.el.paused) stop(d);
     }, 900);
   }
 
   // A sector track finished: play it again, or hand over to the next sector's track.
-  function onEnded() {
-    const t = TRACKS[deck.name];
-    if (!t || t.loop) return;
+  function onEnded(d) {
+    const t = TRACKS[d.name];
+    if (d !== cur || !t || t.loop) return;
+    delete resumeAt[d.name];
     rot.plays++;
     if (rot.plays < (t.repeat || 1)) {
       try {
-        deck.el.currentTime = 0;
+        d.el.currentTime = 0;
       } catch {
         // A stream that can't seek starts over from the next load.
       }
-      playDeck();
+      playDeck(d);
     } else {
       rot.idx++;
       rot.plays = 0;
-      deck.state = 'ended';
+      d.state = 'ended';
     }
+  }
+
+  // The Shadow on your trail: from the moment he shows up in a room until TRAIL_HOLD
+  // seconds of play after he's gone, his sneaking music plays.
+  function onTrail(game) {
+    if (trail.game !== game) {
+      trail.game = game;
+      trail.until = -1;
+    }
+    if (game.shadow && game.shadow.state !== 'dying') trail.until = game.t + TRAIL_HOLD;
+    return game.t < trail.until;
   }
 
   // Which track this moment calls for.
@@ -510,6 +587,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       return 'title';
     }
     if (game.room.lair) return 'lair';
+    if (onTrail(game)) return 'creeping';
     const zone = game.room.zone || 1;
     if (zone !== rot.zone) {
       rot.zone = zone;
@@ -519,33 +597,24 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     return ROTATION[rot.idx % ROTATION.length];
   }
 
-  function updateDeck(want) {
-    if (!deck.el) return;
+  function updateDecks(want) {
+    if (!decks.length) return;
     const now = ctx.currentTime;
     const live = musicOn && !paused;
-    if (want !== deck.name) {
-      const audible = deck.state === 'playing' && !deck.el.paused && live;
-      if (audible && !deck.fadeUntil) {
-        deck.gain.gain.setTargetAtTime(0, now, FADE / 5);
-        deck.fadeUntil = now + FADE;
-      }
-      if (audible && now < deck.fadeUntil) return;
-      load(want);
-      if (live) playDeck();
-      return;
-    }
+    if (!cur || want !== cur.name) switchTo(want);
+    for (const d of decks) if (d.stopAt && now >= d.stopAt) stop(d);
     if (live) {
-      deck.quietSince = 0;
-      if (deck.el.paused && !deck.blocked) playDeck();
-    } else if (!deck.el.paused) {
+      quietSince = 0;
+      if (cur.el.paused && !cur.blocked) playDeck(cur);
+    } else if (decks.some((d) => !d.el.paused)) {
       // Let the music bus fade first, then stop streaming.
-      if (!deck.quietSince) deck.quietSince = now;
-      else if (now - deck.quietSince > 0.8) deck.el.pause();
+      if (!quietSince) quietSince = now;
+      else if (now - quietSince > 0.8) for (const d of decks) if (!d.el.paused) stop(d);
     }
   }
 
   // The procedural loop plays only when there is no track to stream.
-  const synthMusic = () => !deck.el || deck.state === 'failed';
+  const synthMusic = () => !decks.length || !cur || cur.state === 'failed';
 
   // ------------------------------------------------------------------ synth music
 
@@ -810,7 +879,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
 
   function frame(events, game) {
     lastWant = trackFor(game);
-    updateDeck(lastWant);
+    updateDecks(lastWant);
     ms.tempo = game && game.room ? TEMPO[game.room.zone] || TEMPO[1] : TEMPO[0];
     if (musicOn && !paused && synthMusic()) scheduleMusic();
 
@@ -881,9 +950,9 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       if (ctx) {
         ms.next = ctx.currentTime + 0.1;
         updateMusicGain();
-        if (!deck.el) return;
+        if (!decks.length) return;
         if (!musicOn) quietDeckSoon();
-        else if (!paused && deck.el.paused) startDeck();
+        else if (!paused && (!cur || cur.el.paused)) startDeck();
       }
     },
     // A short click for menu moves, so the menus feel alive.
@@ -914,7 +983,10 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     },
     // How many sample files have decoded, and which failed.
     status() {
-      return { loaded: Object.keys(bufs).length, total: allFiles.length, missing: [...missing], track: deck.name, trackState: deck.state };
+      return {
+        loaded: Object.keys(bufs).length, total: allFiles.length, missing: [...missing],
+        track: cur ? cur.name : null, trackState: cur ? cur.state : 'idle', fading: decks.filter((d) => d.stopAt).map((d) => d.name),
+      };
     },
     get running() {
       return !!ctx && ctx.state === 'running';

@@ -1,8 +1,11 @@
 # Audio credits
 
-Every recorded sound and music track in Dead End is dedicated to the public domain under
-[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). You don't need to credit
-anyone to reuse them, but the people who made them deserve it, so here they are.
+Every recorded sound and music track in Dead End but one is dedicated to the public domain
+under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). You don't need to
+credit anyone to reuse those, but the people who made them deserve it, so here they are.
+The exception is "Midnight Creeping in the Alchemy Lab," which is licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): reuse it only with the credit
+given in its row.
 
 The game synthesizes everything else in the browser: the Shadow's warning pulse and drone,
 the pod gate hum, room-clear chimes, and a fallback for any file that fails to load.
@@ -21,6 +24,7 @@ to -18 LUFS and encoded as 128 kbps stereo MP3.
 | `music/sector-2.mp3` | jazz (saxaphone) | Alex McCulloch (Pro Sensory) | Blue Sector | 2:09 | [opengameart.org/content/jazz-saxaphone](https://opengameart.org/content/jazz-saxaphone) | CC0 1.0 |
 | `music/sector-3.mp3` | Jazz | Umplix | Green Sector | 2:05 | [opengameart.org/content/jazz-2](https://opengameart.org/content/jazz-2) | CC0 1.0 |
 | `music/sector-4.mp3` | Sneaking into the Robot Factory (from Sneaky Music Pack) | Umplix | Red Sector | 1:01 | [opengameart.org/content/sneaky-music-pack](https://opengameart.org/content/sneaky-music-pack) | CC0 1.0 |
+| `music/creeping.mp3` | Midnight Creeping in the Alchemy Lab | glitchart, a remix of "Midnight Creeping" composed by Jonathan Shaw ([www.jshaw.co.uk](https://www.jshaw.co.uk)) and "Alchemy Lab" by tcarisland | While the Shadow is on your trail: from when he shows up until 15 seconds after he's gone | 4:19 | [opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland](https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `music/lair.mp3` | Spy Loop | wipics | The Shadow's lair, room 127 | 0:25 | [opengameart.org/content/spy-loop](https://opengameart.org/content/spy-loop) | CC0 1.0 |
 
 Changes from the originals:
@@ -29,11 +33,16 @@ Changes from the originals:
 - `sector-2.mp3` and `sector-3.mp3` have their leading silence removed.
 - `sector-4.mp3` passes through a peak limiter before normalizing, so it reaches the
   target loudness without clipping.
+- `creeping.mp3` is converted from the 16-bit FLAC, with the silence at the start and
+  the last 1.3 seconds of silence removed, and normalized to -18 LUFS. The music is
+  otherwise unchanged.
 - `lair.mp3` is cut to exactly 16 bars at 152 bpm (25.263 seconds), with the release of
   the last note laid over the start, so it repeats without a gap.
 
 Each sector track plays in turn: entering a sector starts its track, and after a track
-plays through (twice for the two short ones), the next sector's track takes over.
+plays through (twice for the two short ones), the next sector's track takes over. Every
+change of track is a 2.5-second crossfade, and a track you come back to picks up where it
+left off.
 
 ## Sound effects
 
@@ -74,7 +83,9 @@ peak-normalized to -1 dBFS, and encoded as 96 kbps MP3.
 
 ## Adding or swapping a file
 
-1. Check the license on the item's own page. Use CC0 only; the game's source is public.
+1. Check the license on the item's own page. Prefer CC0. CC BY works too, because the
+   game's source is public and credits each author, but give exactly the credit the
+   license asks for here, in the README, and on the game's credits screen.
 2. Convert it the same way as its neighbors (see the notes at the top of each section),
    and keep the file name, or add the new name to `SAMPLES` or `TRACKS` in `src/audio.js`.
 3. Update this file, and check the result in `dev/sounds.html`.
