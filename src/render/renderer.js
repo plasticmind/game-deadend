@@ -240,11 +240,13 @@ export class Renderer {
     ao.dt = dt;
     ao.time = this.time;
     ao.rm = this.rm;
+    // Precompiling shows every actor and then hides them all, so it must come before
+    // this frame's actor update, or the frame draws without Shamus and the item.
+    if (!this.compiled) this.precompile();
     this.actors.update(game, ao);
     this.fx.update(dt, this.time);
     this.updateCamera(dt);
 
-    if (!this.compiled) this.precompile();
     if (this.composer) this.composer.render(dt);
     else this.gl.render(this.scene, this.camera);
   }
