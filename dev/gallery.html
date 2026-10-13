@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dead End: renderer gallery</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #07080c; overflow: hidden; color: #e8e4da; font: 13px/1.4 ui-monospace, Menlo, monospace; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #info { position: fixed; right: 10px; bottom: 10px; max-width: 420px; padding: 8px 10px; background: rgba(7, 8, 12, 0.82); border: 1px solid #333; border-radius: 6px; white-space: pre-wrap; }
+      #info.hidden { display: none; }
+      #hudbox { position: fixed; left: 16px; top: 14px; width: 330px; height: 58px; border: 1px dashed rgba(255, 255, 255, 0.35); border-radius: 6px; pointer-events: none; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hudbox" hidden></div>
+    <div id="info"></div>
+    <script type="module" src="./gallery.js"></script>
+  </body>
+</html>
