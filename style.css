@@ -1106,6 +1106,26 @@ table {
   border: 1.5px solid #1a0f02;
 }
 
+/* The note that says the 3D view couldn't run. */
+.view-note {
+  position: fixed;
+  left: calc(10px + var(--safe-l));
+  bottom: calc(10px + var(--safe-b, 0px));
+  z-index: 6;
+  max-width: min(560px, calc(100vw - 20px));
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(9, 11, 16, 0.94);
+  border: 1px solid #ffb547;
+  color: #f3efe4;
+  font: 500 14px/1.4 var(--font-ui, system-ui, sans-serif);
+}
+
+.view-note-why {
+  color: #c9c4b8;
+  font-size: 12px;
+}
+
 /* ------------------------------------------------------------------ boot and no-script */
 
 .boot {

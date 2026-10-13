@@ -120,6 +120,19 @@ function rendererOptions() {
   return { quality: save.settings.quality, reducedMotion: reducedMotion() };
 }
 
+// Say so on screen when the 3D view can't run, with the reason, instead of switching to
+// the plain view without a word.
+function showViewNote(err) {
+  if (document.querySelector('.view-note')) return;
+  const note = document.createElement('div');
+  note.className = 'view-note';
+  note.setAttribute('role', 'status');
+  const why = err && err.message ? err.message : String(err || 'unknown error');
+  note.innerHTML = '<strong>3D graphics didn’t start, so this is the simple view.</strong> Reload the page to try again. <span class="view-note-why"></span>';
+  note.querySelector('.view-note-why').textContent = `(${why})`;
+  document.body.appendChild(note);
+}
+
 async function makeRenderer() {
   if (params.get('view') !== '2d') {
     try {
@@ -127,6 +140,7 @@ async function makeRenderer() {
       return new mod.Renderer(canvas, rendererOptions());
     } catch (err) {
       console.warn('[dead-end] The 3D renderer is unavailable, so this is the 2D view.', err);
+      showViewNote(err);
       freshCanvas();
     }
   }
@@ -135,6 +149,7 @@ async function makeRenderer() {
 
 function fallTo2d(err) {
   console.error('[dead-end] The 3D renderer failed; switching to the 2D view.', err);
+  showViewNote(err);
   try {
     renderer.dispose?.();
   } catch {

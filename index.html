@@ -11,13 +11,33 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 12.2c2.6-1.1 15.4-1.1 18 0l-.6 1.6c-3-.9-13.8-.9-16.8 0z' fill='%23e2ad62'/%3E%3Cpath d='M7 12 8.2 5.2c.2-.9 1-1.4 1.8-1.1l2 .7 2-.7c.8-.3 1.6.2 1.8 1.1L17 12z' fill='%23c98a3c'/%3E%3Crect x='7.2' y='13.6' width='9.6' height='7.6' rx='3' fill='%23e9e3d6'/%3E%3Crect x='8.4' y='15.6' width='7.2' height='2.4' rx='1.2' fill='%2312151c'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="./style.css" />
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-        }
-      }
+    <script>
+      // The game's own modules load with a fresh version tag on every visit. The NAS sends
+      // no cache headers, so without this a browser can keep some old modules and fetch
+      // some new ones after an update, and the mismatch breaks the 3D view. The import map
+      // pins Three.js and tags each of our modules (tools/sim-test.mjs checks this list
+      // against src/). Then main.js loads with the same tag.
+      (function () {
+        var tag = Date.now().toString(36);
+        var modules = [
+          'audio.js', 'automap.js', 'debug2d.js', 'hud.js', 'icons.js', 'input.js', 'main.js', 'map.js',
+          'render/actors.js', 'render/electric.js', 'render/fx.js', 'render/kit.js', 'render/renderer.js',
+          'render/roomview.js', 'render/textures.js', 'render/util.js', 'room.js', 'rooms/index.js',
+          'rooms/sector1.js', 'rooms/sector2.js', 'rooms/sector3.js', 'rooms/sector4.js', 'save.js',
+          'scores.js', 'sim/core.js', 'sim/foes.js', 'sim/game.js', 'sim/props.js', 'sim/rng.js',
+          'sim/shadow.js', 'sim/shots.js', 'sim/tuning.js', 'ui.js',
+        ];
+        var imports = {
+          three: 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js',
+          'three/addons/': 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/',
+        };
+        for (var i = 0; i < modules.length; i++) imports['./src/' + modules[i]] = './src/' + modules[i] + '?v=' + tag;
+        var map = document.createElement('script');
+        map.type = 'importmap';
+        map.textContent = JSON.stringify({ imports: imports });
+        document.currentScript.after(map);
+        window.__deadEndTag = tag;
+      })();
     </script>
   </head>
   <body>
@@ -42,6 +62,14 @@
         }
       }, 12000);
     </script>
-    <script type="module" src="./src/main.js"></script>
+    <script>
+      // Start the game with the same version tag the import map uses.
+      (function () {
+        var main = document.createElement('script');
+        main.type = 'module';
+        main.src = './src/main.js?v=' + window.__deadEndTag;
+        document.body.appendChild(main);
+      })();
+    </script>
   </body>
 </html>

@@ -13,6 +13,7 @@ import { addFoe } from '../src/sim/foes.js';
 import { explodeBarrel } from '../src/sim/props.js';
 import { getRoom, sectionOf, sectionRooms } from '../src/rooms/index.js';
 import { Pilot, fightInput } from './tour.mjs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const only = process.argv[2] ?? '';
 const results = [];
@@ -699,6 +700,18 @@ test('skills: Detective is the default, Gumshoe is hidden, and a new loop skips 
   const back = createGame({ skill: 2, from: makeSnapshot(g) });
   assert.equal(back.mapped[5], true);
   assert.equal(back.sections[8], true);
+});
+
+test('page: index.html version-tags every module in src/', () => {
+  const root = new URL('../', import.meta.url);
+  const html = readFileSync(new URL('index.html', root), 'utf8');
+  const block = html.match(/var modules = \[([\s\S]*?)\];/);
+  assert.ok(block, 'index.html lists its modules');
+  const listed = [...block[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  const walk = (dir, pre = '') => readdirSync(new URL(dir, root), { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory() ? walk(`${dir}${d.name}/`, `${pre}${d.name}/`) : d.name.endsWith('.js') ? [`${pre}${d.name}`] : []);
+  const files = walk('src/').sort();
+  assert.deepEqual(listed, files, 'add or remove the module in index.html');
 });
 
 test('bolts kill Shamus; the shield stops them; a shot and a bolt destroy each other', () => {
