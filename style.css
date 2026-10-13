@@ -185,6 +185,58 @@ body {
   letter-spacing: 0.14em;
 }
 
+/* The ION-SHIV's heat. The fill's gradient spans the whole track, so its end shows the
+   color for the current heat: cool blue, amber, then red. */
+.hud-heat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: rgba(9, 11, 16, 0.9);
+  border-radius: 6px;
+}
+
+.hud-heat-label {
+  min-width: 10.5ch;
+  font: 800 11px/1.2 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: #9fdcff;
+}
+
+.hud-heat-track {
+  width: 110px;
+  height: 8px;
+  border-radius: 4px;
+  background: #1c212c;
+  overflow: hidden;
+}
+
+.hud-heat-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #5fd3ff, #ffb547 62%, #ff4b3a) 0 0 / 110px 100% no-repeat;
+}
+
+.hud-heat.is-hot .hud-heat-label {
+  color: #ff7a6b;
+}
+
+.hud-heat.is-hot .hud-heat-fill {
+  background: #ff4b3a;
+  animation: heat-throb 1s ease-in-out infinite;
+}
+
+@keyframes heat-throb {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.reduce-motion .hud-heat.is-hot .hud-heat-fill {
+  animation: none;
+}
+
 .hud-status {
   display: flex;
   gap: 6px;
@@ -1037,6 +1089,13 @@ table {
   width: 22px;
   height: 0;
   border-top: 3px dashed #33dd66;
+}
+
+.legend-unseen {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px dashed #c9c4b8;
 }
 
 .legend-you {

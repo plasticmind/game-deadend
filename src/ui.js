@@ -5,7 +5,7 @@
 // a gamepad (stick or d-pad moves, A selects, B goes back). Arrows move focus spatially,
 // so lists, grids, and the letter picker all navigate the same way.
 
-import { SKILLS } from './sim/tuning.js';
+import { SKILLS, DEFAULT_SKILL } from './sim/tuning.js';
 import { ZONES, KEY_COLORS } from './map.js';
 import * as icons from './icons.js';
 import { drawAutomap, mapSize, mapWindow, roomCenter, mapStats } from './automap.js';
@@ -142,8 +142,9 @@ export function createUI(root, ctx) {
 
     skill() {
       const cp = save.checkpoint;
-      const last = Number.isInteger(ctx.lastSkill?.()) ? ctx.lastSkill() : 1;
-      const list = SKILLS.map((sk) =>
+      const offered = SKILLS.filter((sk) => !sk.hidden);
+      const last = offered.some((sk) => sk.id === ctx.lastSkill?.()) ? ctx.lastSkill() : DEFAULT_SKILL;
+      const list = offered.map((sk) =>
         btn(sk.name, () => actions.newGame(sk.id), {
           id: `skill-${sk.id}`,
           cls: 'skill-btn',
@@ -172,6 +173,8 @@ export function createUI(root, ctx) {
         [icons.key('#3d8bff'), 'Key', 'Pick it up. It stays in your pocket until you use it on a keyhole of the same color.'],
         [icons.mystery(), 'Mystery', 'Bonus or disaster: points, a life, a shield, frozen robots, or the Shadow himself.'],
         [icons.life(), 'Extra life', 'A bubbling bottle. Touch it for one more life.'],
+        [icons.console(), 'Console', 'Walk up to one to put its whole section of the lair on your map. From Detective up, it’s the only way the map fills in. On Chief, a stray shot or a barrel blast wrecks it for good.'],
+        [icons.barrel(), 'Red barrel', 'Shoot it and it blows up, taking out robots and Shamus close by, and setting off barrels beside it. Robots’ bolts set them off too.'],
         [icons.droid(), 'Robo-Droid', 'Walks the grid and fires along the eight directions when you line up with it.'],
         [icons.drone(), 'Whirling Drone', 'Spirals in on you. It never fires, but touching it is fatal.'],
         [icons.jumper(), 'Snap-Jumper', 'Crouches, then hops at you. From Blue Sector on it zaps after it lands.'],
@@ -225,9 +228,10 @@ export function createUI(root, ctx) {
           'ul',
           { class: 'tips' },
           h('li', {}, 'Electric walls kill on touch. So do yellow pod gates while they’re lit: wait for them to drop.'),
+          h('li', {}, 'Every shot heats the ION-SHIV. Fire too fast and it overheats and locks up for a moment, so pick your shots. The heat gauge sits under your score.'),
           h('li', {}, 'Robots come back every time you enter a room. Clear them all and Shamus runs faster in that room.'),
           h('li', {}, 'A low pulsing sound means the Shadow is coming. Get to a door.'),
-          h('li', {}, 'The map shows every room you’ve found, locked doors, and items you left behind.'),
+          h('li', {}, 'The map shows the rooms you’ve mapped, locked doors, and items you left behind. On Rookie it draws every room you walk into; from Detective up, use consoles.'),
           h('li', {}, 'Reaching a new sector saves a checkpoint. Continue from it after a game over.'),
         ),
       );
@@ -334,9 +338,9 @@ export function createUI(root, ctx) {
           { class: 'screen-body scrolls', tabindex: '-1' },
           h('p', { class: 'credit-big' }, 'A spiritual successor to Shamus by Cathryn Mataga, Synapse Software, 1982.'),
           h('p', {}, 'Dead End rebuilds the original’s 128-room lair, its colored keys, its electric walls, and the Shadow who punishes anyone who lingers, as a 3D diorama for the Gardner family arcade.'),
-          h('p', {}, 'Music from OpenGameArt.org, all CC0: “Moil” by Ruskerdax; “Investigation,” “Jazz,” and “Sneaking into the Robot Factory” by Umplix; “jazz (saxaphone)” by Alex McCulloch; and “Spy Loop” by wipics.'),
-          h('p', {}, '“Midnight Creeping in the Alchemy Lab” by glitchart, a remix of “Midnight Creeping,” composed by Jonathan Shaw (www.jshaw.co.uk), and “Alchemy Lab” by tcarisland. Licensed under CC BY 4.0 (creativecommons.org/licenses/by/4.0); converted to MP3 and leveled.'),
-          h('p', {}, 'Sound effects by Kenney (kenney.nl), CC0; the rest are synthesized in your browser. 3D by three.js.'),
+          h('p', {}, 'Title music: “Midnight Creeping in the Alchemy Lab” by glitchart, a remix of “Midnight Creeping,” composed by Jonathan Shaw (www.jshaw.co.uk), and “Alchemy Lab” by tcarisland. Licensed under CC BY 4.0 (creativecommons.org/licenses/by/4.0); converted to MP3 and leveled.'),
+          h('p', {}, 'More music from OpenGameArt.org, all CC0: “Moil” by Ruskerdax; “Investigation,” “Jazz,” and “Sneaking into the Robot Factory” by Umplix; “jazz (saxaphone)” by Alex McCulloch; and “Spy Loop” by wipics.'),
+          h('p', {}, 'Sound effects by Kenney (kenney.nl) and bart (OpenGameArt.org), CC0. The electric shock includes “High Voltage Power” by virtual_vibes (Pixabay). The rest are synthesized in your browser. 3D by three.js.'),
         ),
         h('div', { class: 'menu menu-foot' }, btn('Back', () => back(), { id: 'back', cls: 'menu-back' })),
       );
@@ -383,7 +387,7 @@ export function createUI(root, ctx) {
     map(data = {}) {
       const g = ctx.getGame();
       const stats = mapStats(g);
-      const canvas = h('canvas', { class: 'map-canvas', role: 'img', 'aria-label': 'Map of the rooms you have found' });
+      const canvas = h('canvas', { class: 'map-canvas', role: 'img', 'aria-label': 'Map of the rooms you have mapped' });
       const scroller = h('div', { class: 'map-scroll' }, canvas);
       const keys = h('div', { class: 'map-keys' });
       for (const c of ['blue', 'green', 'brown', 'purple', 'cyan']) {
@@ -399,9 +403,16 @@ export function createUI(root, ctx) {
         h('li', {}, h('span', { class: 'legend-dash' }), 'Locked door'),
         h('li', {}, h('span', { class: 'legend-icon', html: icons.mystery() }), 'Mystery'),
         h('li', {}, h('span', { class: 'legend-icon', html: icons.life() }), 'Life'),
+        h('li', {}, h('span', { class: 'legend-unseen' }), 'Mapped, not visited'),
         h('li', {}, h('span', { class: 'legend-you' }), 'You'),
       );
-      const here = g.room ? `You are in room ${g.room.id}, ${zoneName(g.room.zone)}.` : '';
+      const auto = SKILLS[g.skill]?.autoMap;
+      const here = !g.room
+        ? ''
+        : stats.hereMapped
+          ? `You are in room ${g.room.id}, ${zoneName(g.room.zone)}.`
+          : `You are in room ${g.room.id}, ${zoneName(g.room.zone)}, which isn’t on your map yet.`;
+      const hint = auto ? '' : stats.mapped ? 'Use a console to map more of the lair.' : 'Walk up to a console (a green screen) to map its section of the lair.';
       const zoomLabel = () => (mapZoomed ? 'Show what you have found' : 'Show the whole lair');
       const zoomBtn = btn(zoomLabel(), () => {
         mapZoomed = !mapZoomed;
@@ -410,7 +421,7 @@ export function createUI(root, ctx) {
       const el = card(
         'map',
         'The lair',
-        h('div', { class: 'map-head' }, h('p', { class: 'lede' }, `Rooms found: ${stats.visited} of ${stats.total}. ${here}`), h('div', { class: 'map-keys-wrap' }, h('span', { class: 'muted' }, 'Keys'), keys)),
+        h('div', { class: 'map-head' }, h('p', { class: 'lede' }, `Rooms mapped: ${stats.mapped} of ${stats.total}. ${here} ${hint}`.trim()), h('div', { class: 'map-keys-wrap' }, h('span', { class: 'muted' }, 'Keys'), keys)),
         scroller,
         legend,
         h(

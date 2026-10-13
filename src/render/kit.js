@@ -62,6 +62,8 @@ export class Kit {
     tex.lock = keep(T.lockIcon());
     tex.keyhole = keep(T.keyholePlate());
     tex.hazard = keep(T.hazard());
+    tex.holo = keep(T.holoMap());
+    tex.shadow = keep(T.shadowFigure());
     this.tex = tex;
 
     // ---------------------------------------------------------------- materials
@@ -85,7 +87,12 @@ export class Kit {
     const barrelTop = std({ map: tex.barrelTop, roughness: 0.45, metalness: 0.35 });
     m.barrel = [barrelSide, barrelTop, barrelTop];
     m.termBody = std({ map: tex.termBody, emissiveMap: tex.termBodyEm, emissive: 0xffffff, emissiveIntensity: 2.0, roughness: 0.5, metalness: 0.45 });
-    m.screen = basic({ map: tex.screen, color: new THREE.Color(1.5, 1.7, 1.5) });
+    // White, so each console's instance color sets its screen's hue and brightness.
+    m.screen = basic({ map: tex.screen, color: 0xffffff });
+    // A pool of light on the floor in front of each console, tinted per instance.
+    m.consoleGlow = basic({ map: tex.glow, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    // The glow around a barrel whose fuse is burning, and the burn mark one leaves.
+    m.scorch = basic({ map: tex.scorch, transparent: true, depthWrite: false, opacity: 0.7 });
     m.vent = std({ map: tex.vent, roughness: 0.55, metalness: 0.5 });
     m.grate = std({ map: tex.grate, roughness: 0.55, metalness: 0.5, emissiveMap: tex.grate, emissive: 0x000000 });
     m.podPost = std({ map: tex.hazard, roughness: 0.5, metalness: 0.3 });

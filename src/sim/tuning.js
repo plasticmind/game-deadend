@@ -5,13 +5,19 @@ export const DT = 1 / 60;
 
 // foeSpeed, foeFire, foeCount, shadowTime, and shadowSpeed multiply the sector values.
 // grace multiplies FOES.entryGrace: a Rookie gets a longer breath on every entry. armor
-// multiplies FOES.armor.chance.
+// multiplies FOES.armor.chance. heat is how much each shot heats the ION-SHIV (it
+// overheats at 1). autoMap puts every room you walk into on the map; without it, only a
+// console maps rooms (a section at a time). consolesBreak lets shots and barrel blasts
+// wreck consoles. hidden skills stay out of the menus (old saves can still use them).
 export const SKILLS = [
-  { id: 0, name: 'Rookie', blurb: 'Slower robots, a patient Shadow, seven lives', lives: 7, foeSpeed: 0.75, foeFire: 0.6, foeCount: 0.7, shadowTime: 1.5, shadowSpeed: 0.8, grace: 1.6, armor: 0.5 },
-  { id: 1, name: 'Gumshoe', blurb: 'The way Shamus played', lives: 5, foeSpeed: 1, foeFire: 1, foeCount: 1, shadowTime: 1, shadowSpeed: 1, grace: 1, armor: 1 },
-  { id: 2, name: 'Detective', blurb: 'Faster robots and a shorter fuse', lives: 5, foeSpeed: 1.15, foeFire: 1.25, foeCount: 1.2, shadowTime: 0.8, shadowSpeed: 1.1, grace: 0.9, armor: 1.25 },
-  { id: 3, name: 'Chief', blurb: 'Substantially harder. Choose wisely', lives: 4, foeSpeed: 1.3, foeFire: 1.5, foeCount: 1.35, shadowTime: 0.65, shadowSpeed: 1.2, grace: 0.8, armor: 1.5 },
+  { id: 0, name: 'Rookie', blurb: 'Slower robots, a patient Shadow, seven lives, and a map that draws itself', lives: 7, foeSpeed: 0.75, foeFire: 0.6, foeCount: 0.7, shadowTime: 1.5, shadowSpeed: 0.8, grace: 1.6, armor: 0.5, heat: 0.12, autoMap: true, consolesBreak: false },
+  { id: 1, name: 'Gumshoe', blurb: 'The way Shamus played', lives: 5, foeSpeed: 1, foeFire: 1, foeCount: 1, shadowTime: 1, shadowSpeed: 1, grace: 1, armor: 1, heat: 0.15, autoMap: true, consolesBreak: false, hidden: true },
+  { id: 2, name: 'Detective', blurb: 'Fast robots, a short fuse, and consoles to map the lair', lives: 5, foeSpeed: 1.15, foeFire: 1.25, foeCount: 1.2, shadowTime: 0.8, shadowSpeed: 1.1, grace: 0.9, armor: 1.25, heat: 0.2, autoMap: false, consolesBreak: false },
+  { id: 3, name: 'Chief', blurb: 'Substantially harder, and stray fire wrecks consoles. Choose wisely', lives: 4, foeSpeed: 1.3, foeFire: 1.5, foeCount: 1.35, shadowTime: 0.65, shadowSpeed: 1.2, grace: 0.8, armor: 1.5, heat: 0.24, autoMap: false, consolesBreak: true },
 ];
+// The skill a new case starts on, and the skills the menus offer.
+export const DEFAULT_SKILL = 2;
+export const SHOWN_SKILLS = SKILLS.filter((s) => !s.hidden).map((s) => s.id);
 
 export const PLAYER = {
   radius: 0.3, // body size for robots, bolts, and pickups
@@ -27,6 +33,8 @@ export const PLAYER = {
   fireCooldown: 0.16, // fire keys, gamepads, and touch, which plant his feet to shoot
   mouseCooldown: 0.3, // the mouse runs and guns, so it reloads slower
   clickBuffer: 0.35, // a mouse click waits this long for a free shot, so quick clicks count
+  heatCool: 0.35, // the ION-SHIV sheds this much heat a second (SKILLS.heat adds it per shot)
+  overheatTime: 1.6, // seconds it stays locked once it hits full heat
   respawnInvuln: 1.6,
   deathTime: 1.6,
   touchSlack: 0.08, // robots and the Shadow must overlap Shamus this much to kill him
@@ -39,6 +47,8 @@ export const SCORE = {
   extraLifeEvery: 10000,
   roomClear: 150, // times the zone
   shadowDefeat: 10000,
+  mapSection: 100, // times the zone, for each section a console maps
+  barrel: 25,
   foe: { droid: 50, drone: 75, jumper: 100, sniffer: 150, warden: 200 }, // times the zone
 };
 
@@ -121,6 +131,17 @@ export const FOE = {
   // line when he is on it. Two brass plates make it take three hits.
   warden: { r: 0.42, hp: 3, turn: 0.5, aim: 0.55, burst: 3, gap: 0.16, rest: 2.4, range: 16, align: 0.5 },
 };
+
+// Red barrels explode when a shot or a robot's bolt hits them. The blast kills Shamus
+// within `radius` (unless the respawn grace, the shield, or a cheat protects him), deals
+// `damage` hits to every robot it reaches, stuns the Shadow, and lights the fuse of every
+// barrel within `chain`, which blows `fuse` seconds later. The fuse keeps chains to at
+// most three booms a second.
+export const BARREL = { radius: 1.7, damage: 2, chain: 2.3, fuse: 0.34 };
+
+// Consoles (terminals): Shamus uses one by walking up to it, until the gap between his
+// body and the console's box is at most `reach`.
+export const CONSOLE = { reach: 0.15 };
 
 // Mystery `?`: bonus or disaster. Weights are relative; the Shadow is the disaster.
 export const MYSTERY = {

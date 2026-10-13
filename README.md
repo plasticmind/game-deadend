@@ -24,9 +24,19 @@ screen shows how many hits he has left.
   across the lair, so expect to backtrack.
 - **Robots respawn.** Every time you enter a room, a fresh set of robots appears. Clear
   them all and Shamus runs faster in that room.
-- **Don't linger.** Each room starts a clock. When you hear a low pulsing, the Shadow is
-  about to come through the walls. You can't kill him; a shot only stuns him for a
-  moment. Leave the room and the chase ends.
+- **Don't linger.** Each room starts a clock (about 15 to 20 seconds on Detective, less
+  in deeper sectors). When you hear a low pulsing, the Shadow is about to come through
+  the walls. You can't kill him; a shot only stuns him for a moment. Leave the room and
+  the chase ends.
+- **Pick your shots.** Every shot heats the ION-SHIV. Fire too fast and it overheats and
+  locks up for a moment. The heat gauge sits under your score.
+- **Red barrels explode.** Shoot one and it blows up, wrecking robots close by, setting
+  off barrels beside it, and taking Shamus with it if he's too close. Robots' bolts set
+  barrels off too.
+- **Consoles draw the map.** Walk up to a console (a green screen) and it puts its whole
+  section of the lair on your map. On Rookie the map also draws every room you walk
+  into; from Detective up, consoles are the only way. On Chief, a stray shot or a barrel
+  blast wrecks a console for good.
 - **Mysteries are a gamble.** A glowing question mark gives you points, a life, a shield,
   frozen robots, or the Shadow, right now.
 - **Bottles are extra lives.** You also earn a life every 10,000 points.
@@ -48,6 +58,8 @@ walking. However you shoot, only two ION-SHIVs fly at once.
 | Key | Stays in your pocket until you use it on a keyhole of the same color. |
 | Mystery | Bonus or disaster. |
 | Extra life | A bubbling bottle: one more life. |
+| Console | Walk up to it to map its section of the lair. |
+| Red barrel | Explodes when shot, hurting everything close by and setting off its neighbors. |
 | Robo-Droid | Walks the grid and fires along the eight directions when you line up with it. |
 | Whirling Drone | Spirals in on you. It never fires, but touching it is fatal. |
 | Snap-Jumper | Crouches, then hops at you. From Blue Sector on, it zaps after it lands. |
@@ -60,10 +72,12 @@ walking. However you shoot, only two ION-SHIVs fly at once.
 
 | Skill | Lives | What changes |
 |---|---|---|
-| Rookie | 7 | Slower robots and a patient Shadow |
-| Gumshoe | 5 | The way Shamus played |
-| Detective | 5 | Faster robots and a shorter fuse |
-| Chief | 4 | Substantially harder |
+| Rookie | 7 | Slower robots, a patient Shadow, a cooler gun, and a map that draws every room you enter |
+| Detective | 5 | The default. Fast robots and a short fuse; only consoles map the lair |
+| Chief | 4 | Substantially harder: more armor, a hotter gun, and stray fire wrecks consoles |
+
+A fourth level, Gumshoe (the way Shamus played), is in the code but hidden from the menus
+for now. A saved case from it continues on Detective.
 
 After you win, **Play again, harder** starts a new case one skill level up and keeps your
 score.
@@ -94,13 +108,15 @@ key's color (dashed until opened), items you left behind, and the keys you carry
 
 - **Sound effects** and **music** turn on and off separately. Sound effects are CC0
   recordings in `audio/sfx/`, with the rest synthesized in the browser. The music is jazz
-  (CC0, plus one CC BY track) streamed from `audio/music/`: one for the title, one per
-  sector, a sneaking track while the Shadow is on your trail, and a tenser loop in the
-  lair. Tracks crossfade, and a track you come back to picks up where it left off. If a
-  file can't load, the game plays a synthesized version instead, and it never waits for
-  audio.
-- **The Shadow's warning stays clear.** While the low pulsing warning sounds, and while
-  the Shadow is in the room, the music drops so you can hear him coming.
+  (CC0, plus one CC BY track) streamed from `audio/music/`: a playful track for the title,
+  one per sector, a moody track while the Shadow is on your trail, and a tense loop in the
+  lair. The music never drops out: a new sector or the lair changes the track at once, and
+  a track hands over to the next before it ends. If a file can't load, the game plays a
+  synthesized version instead, and it never waits for audio.
+- **The Shadow's warning stays clear.** While the low pulsing warning sounds, the music
+  drops well under it so you can hear him coming. While he's in the room, it only dips.
+- **The electric walls sound dangerous.** Touching one is the loudest sound in the game, on
+  purpose, so you learn not to. It's held under the master volume, so it never clips.
 - **Graphics** is Auto, High, Medium, or Low. Lower it if the game stutters.
 - **Reduced motion** follows your system setting, and you can force it on. It removes
   camera moves, room slides, and pulsing effects.
@@ -190,22 +206,27 @@ GitHub repository.
 Dead End is a spiritual successor to Shamus by Cathryn Mataga, Synapse Software, 1982.
 3D by [three.js](https://threejs.org/).
 
-Every music track and recorded sound effect but one is dedicated to the public domain
-under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); the exception, "Midnight
-Creeping in the Alchemy Lab," is [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-`audio/CREDITS.md` lists each file with its source, original name, and changes. To hear them all, serve the folder and open
-`dev/sounds.html`.
+Every music track and recorded sound effect in this repository but one is dedicated to the
+public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); the
+exception, "Midnight Creeping in the Alchemy Lab," is
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). `audio/CREDITS.md` lists each
+file with its source, original name, and changes. To hear them all, serve the folder and
+open `dev/sounds.html`.
+
+On the family arcade, the electrocution also uses "High Voltage Power" by virtual_vibes
+(Pixabay). Its license doesn't allow sharing the file, so it lives in `audio/local/`,
+which git ignores, and the game falls back to a CC0 version without it.
 
 The music comes from [OpenGameArt.org](https://opengameart.org/):
 
 | Track | Artist | Plays |
 |---|---|---|
-| [Moil](https://opengameart.org/content/moil) | Ruskerdax | Title screen and menus |
+| [Midnight Creeping in the Alchemy Lab](https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland) | glitchart, remixing "Midnight Creeping" composed by Jonathan Shaw ([www.jshaw.co.uk](https://www.jshaw.co.uk)) and "Alchemy Lab" by tcarisland ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); converted to MP3 and leveled) | Title screen and menus |
 | [Investigation](https://opengameart.org/content/investigation-0) | Umplix | Black Sector |
 | [jazz (saxaphone)](https://opengameart.org/content/jazz-saxaphone) | Alex McCulloch (Pro Sensory) | Blue Sector |
 | [Jazz](https://opengameart.org/content/jazz-2) | Umplix | Green Sector |
 | [Sneaking into the Robot Factory](https://opengameart.org/content/sneaky-music-pack) | Umplix | Red Sector |
-| [Midnight Creeping in the Alchemy Lab](https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland) | glitchart, remixing "Midnight Creeping" composed by Jonathan Shaw ([www.jshaw.co.uk](https://www.jshaw.co.uk)) and "Alchemy Lab" by tcarisland ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); converted to MP3 and leveled) | While the Shadow is on your trail |
+| [Moil](https://opengameart.org/content/moil) | Ruskerdax | While the Shadow is on your trail |
 | [Spy Loop](https://opengameart.org/content/spy-loop) | wipics | The Shadow's lair |
 
 The sound effects come from [Kenney](https://kenney.nl/)'s
@@ -213,6 +234,8 @@ The sound effects come from [Kenney](https://kenney.nl/)'s
 [Digital Audio](https://kenney.nl/assets/digital-audio),
 [Impact Sounds](https://kenney.nl/assets/impact-sounds),
 [Interface Sounds](https://kenney.nl/assets/interface-sounds),
+[UI Audio](https://kenney.nl/assets/ui-audio),
 [RPG Audio](https://kenney.nl/assets/rpg-audio), and
-[Music Jingles](https://kenney.nl/assets/music-jingles) packs. The game synthesizes the
-rest, including the Shadow's warning.
+[Music Jingles](https://kenney.nl/assets/music-jingles) packs, plus a steam hiss from
+[Steam release sounds](https://opengameart.org/content/steam-release-sounds) by bart. The
+game synthesizes the rest, including the Shadow's warning.

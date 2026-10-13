@@ -211,15 +211,16 @@ export function barrelTop() {
   return toTexture(c);
 }
 
-// The terminal's green CRT: text rows, a small bar chart, scanlines.
+// The console's CRT in grays: text rows, a small bar chart, scanlines. Each console tints
+// its screen through its instance color (green idle, cyan once used, dark when broken).
 export function terminalScreen() {
   const W = 128;
   const H = 96;
   const [c, g] = canvas(W, H);
   const rnd = mulberry(31);
-  g.fillStyle = '#04200d';
+  g.fillStyle = '#141414';
   g.fillRect(0, 0, W, H);
-  g.fillStyle = '#58ff8f';
+  g.fillStyle = '#f0f0f0';
   for (let r = 0; r < 6; r++) {
     let x = 8;
     while (x < 70) {
@@ -233,7 +234,7 @@ export function terminalScreen() {
     const h = 10 + rnd() * 50;
     g.fillRect(80 + i * 7, 80 - h, 5, h);
   }
-  g.strokeStyle = '#58ff8f';
+  g.strokeStyle = '#f0f0f0';
   g.strokeRect(76, 12, 46, 72);
   for (let y = 0; y < H; y += 3) {
     g.fillStyle = 'rgba(0,0,0,0.28)';
@@ -245,6 +246,154 @@ export function terminalScreen() {
   g.fillStyle = vg;
   g.fillRect(0, 0, W, H);
   return toTexture(c);
+}
+
+// The hologram a console projects when it uplinks: a little map of linked rooms in a
+// frame, white on black (the sprite tints it).
+export function holoMap() {
+  const W = 192;
+  const H = 128;
+  const [c, g] = canvas(W, H);
+  const rnd = mulberry(77);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
+  const cols = 6;
+  const rows = 4;
+  const cw = 26;
+  const ch = 22;
+  const ox = (W - cols * cw) / 2;
+  const oy = (H - rows * ch) / 2;
+  const on = [];
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) on.push(rnd() < 0.72);
+  g.strokeStyle = 'rgba(255,255,255,0.75)';
+  g.lineWidth = 2;
+  for (let r = 0; r < rows; r++) {
+    for (let q = 0; q < cols; q++) {
+      if (!on[r * cols + q]) continue;
+      const x = ox + q * cw + cw / 2;
+      const y = oy + r * ch + ch / 2;
+      if (q + 1 < cols && on[r * cols + q + 1] && rnd() < 0.8) {
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + cw, y);
+        g.stroke();
+      }
+      if (r + 1 < rows && on[(r + 1) * cols + q] && rnd() < 0.6) {
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x, y + ch);
+        g.stroke();
+      }
+    }
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let q = 0; q < cols; q++) {
+      if (!on[r * cols + q]) continue;
+      const x = ox + q * cw + 4;
+      const y = oy + r * ch + 4;
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      g.fillRect(x, y, cw - 8, ch - 8);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.strokeRect(x, y, cw - 8, ch - 8);
+    }
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = 2;
+  g.strokeRect(4, 4, W - 8, H - 8);
+  for (let y = 0; y < H; y += 4) {
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    g.fillRect(0, y, W, 1.5);
+  }
+  return toTexture(c, { srgb: false });
+}
+
+// The Shadow, painted flat the way the hub art draws him: a tall cloaked figure in a
+// wide-brimmed hat with a clawed hand reaching out. Red is the silhouette, blue the
+// eyes. The figure faces right; the renderer mirrors the card to face the other way.
+// The canvas is 2 wide by 3 tall, the feet at the bottom middle.
+export function shadowFigure() {
+  const W = 256;
+  const H = 384;
+  const [c, g] = canvas(W, H);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#ff0000';
+  g.strokeStyle = '#ff0000';
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  // Cloak: narrow at the shoulders, flaring to a ragged hem.
+  g.beginPath();
+  g.moveTo(88, 150);
+  g.quadraticCurveTo(70, 250, 34, 372);
+  const hem = [34, 52, 66, 84, 100, 118, 134, 150, 166, 184, 200, 216, 228];
+  hem.forEach((x, i) => g.lineTo(x, i % 2 ? 380 : 360));
+  g.quadraticCurveTo(190, 250, 168, 150);
+  g.closePath();
+  g.fill();
+  // Shoulders and a high collar.
+  g.beginPath();
+  g.ellipse(128, 156, 50, 22, 0, 0, Math.PI * 2);
+  g.fill();
+  g.beginPath();
+  g.moveTo(84, 160);
+  g.lineTo(92, 118);
+  g.lineTo(112, 146);
+  g.closePath();
+  g.fill();
+  g.beginPath();
+  g.moveTo(172, 160);
+  g.lineTo(164, 118);
+  g.lineTo(144, 146);
+  g.closePath();
+  g.fill();
+  // Head.
+  g.beginPath();
+  g.ellipse(128, 120, 27, 31, 0, 0, Math.PI * 2);
+  g.fill();
+  // Hat: a wide brim, tipped a little, and a pinched crown.
+  g.beginPath();
+  g.ellipse(128, 96, 118, 17, -0.06, 0, Math.PI * 2);
+  g.fill();
+  g.beginPath();
+  g.moveTo(84, 98);
+  g.bezierCurveTo(84, 60, 98, 26, 122, 18);
+  g.lineTo(136, 30);
+  g.bezierCurveTo(156, 26, 172, 58, 172, 96);
+  g.closePath();
+  g.fill();
+  // The reaching arm: a sleeve out to the right, a bony hand with four claws.
+  g.lineWidth = 26;
+  g.beginPath();
+  g.moveTo(150, 176);
+  g.quadraticCurveTo(196, 186, 214, 214);
+  g.stroke();
+  g.beginPath();
+  g.ellipse(218, 222, 15, 12, 0.5, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 5;
+  for (const [dx, dy] of [[26, -6], [30, 6], [26, 18], [14, 28]]) {
+    g.beginPath();
+    g.moveTo(220, 222);
+    g.quadraticCurveTo(220 + dx * 0.7, 222 + dy * 0.4 - 6, 220 + dx, 222 + dy);
+    g.stroke();
+  }
+  // The other hand, half hidden by the cloak.
+  g.lineWidth = 20;
+  g.beginPath();
+  g.moveTo(102, 180);
+  g.quadraticCurveTo(70, 210, 62, 246);
+  g.stroke();
+  // Eyes: two slanted almonds under the brim, looking the way the hand reaches.
+  g.globalCompositeOperation = 'lighter';
+  g.fillStyle = '#0000ff';
+  for (const [x, y, a] of [[118, 118, 0.38], [146, 118, -0.38]]) {
+    g.beginPath();
+    g.ellipse(x + 4, y, 10, 4.6, a, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalCompositeOperation = 'source-over';
+  return toTexture(c, { srgb: false });
 }
 
 // Console body: dark steel with a row of small indicator lamps (emissive map).

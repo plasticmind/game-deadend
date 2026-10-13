@@ -8,8 +8,10 @@ import { createHash } from 'node:crypto';
 import { ROOMS, LAIR_ROOM, START_ROOM } from '../src/map.js';
 import { W, H, CELL, WALL_HALF, wallDistance, blockAt, lineClear, walkableCell } from '../src/room.js';
 import { createGame, stepGame, enterRoom, makeSnapshot, newLoop, killPlayer, DT } from '../src/sim/game.js';
-import { PLAYER, SCORE, SHADOW, FOES, SKILLS, MYSTERY } from '../src/sim/tuning.js';
+import { PLAYER, SCORE, SHADOW, FOES, SKILLS, MYSTERY, BARREL, CONSOLE, DEFAULT_SKILL, SHOWN_SKILLS } from '../src/sim/tuning.js';
 import { addFoe } from '../src/sim/foes.js';
+import { explodeBarrel } from '../src/sim/props.js';
+import { getRoom, sectionOf, sectionRooms } from '../src/rooms/index.js';
 import { Pilot, fightInput } from './tour.mjs';
 
 const only = process.argv[2] ?? '';
@@ -437,6 +439,266 @@ test('fire: the mouse reloads slower than fire keys', () => {
   assert.ok(steps.length >= 2);
   assert.ok(steps[1] - steps[0] >= Math.floor(PLAYER.mouseCooldown / DT), 'mouse shots wait for the mouse cooldown');
   assert.ok(PLAYER.mouseCooldown > PLAYER.fireCooldown);
+});
+
+// ------------------------------------------------------------------ heat, barrels, consoles
+
+test('heat: shots heat the ION-SHIV, full heat locks it, and it cools down', () => {
+  const g = quiet({ skill: 2 });
+  const spot = openLine(g, 1, 0, 9);
+  place(g, spot.x, spot.y);
+  const per = SKILLS[2].heat;
+  // Keep firing east, clearing shots so only heat stops him.
+  const ev = [];
+  for (let i = 0; i < 120 && !g.player.overheatT; i++) {
+    g.shots.length = 0;
+    stepGame(g, { x: 1, y: 0, fire: i % 12 < 2 });
+    ev.push(...g.events);
+  }
+  assert.equal(count(ev, 'overheat'), 1);
+  // Each shot adds `per` and the 12 steps between shots shed some, so it takes a few more
+  // shots than 1 / per.
+  const net = per - PLAYER.heatCool * 12 * DT;
+  const fired = count(ev, 'fire');
+  assert.ok(fired >= Math.ceil(1 / per - 1e-9) && fired <= Math.ceil((1 - per) / net) + 1, `shots until it overheats: ${fired}`);
+  assert.equal(g.player.heat, 1);
+  assert.ok(g.player.overheatT > 0);
+  // Locked: a press fires nothing and dry-fires instead.
+  run(g, IDLE, 1);
+  let more = run(g, { x: 1, y: 0, fire: true }, 2);
+  assert.equal(count(more, 'fire'), 0);
+  assert.equal(count(more, 'dryFire'), 1);
+  // It cools, says so, and fires again.
+  more = run(g, IDLE, Math.ceil(PLAYER.overheatTime / DT));
+  assert.equal(count(more, 'cooled'), 1);
+  assert.equal(g.player.overheatT, 0);
+  assert.ok(g.player.heat < 1 - PLAYER.heatCool * PLAYER.overheatTime + 0.05);
+  g.shots.length = 0;
+  assert.equal(count(run(g, { x: 1, y: 0, fire: true }, 2), 'fire'), 1);
+  // Death resets it.
+  g.player.heat = 0.9;
+  killPlayer(g, 'wall');
+  assert.equal(g.player.heat, 0);
+});
+
+// A room with a barrel, entered, with that barrel's block.
+function barrelRoom(pred = () => true) {
+  for (const m of ROOMS) {
+    const geo = getRoom(m.id);
+    const b = geo.blocks.find((x) => x.kind === 'barrel' && pred(geo, x));
+    if (!b) continue;
+    const g = quiet({ skill: 2, foes: false });
+    enterRoom(g, m.id, Object.keys(m.exits)[0]);
+    return { g, b: g.room.geo.blocks.find((x) => x.c === b.c && x.r === b.r) };
+  }
+  throw new Error('no room fits');
+}
+
+test('barrels: a shot blows one up, and it leaves the room open where it stood', () => {
+  // A barrel with a clear line to it from some floor cell 3 to 6 units away.
+  for (const m of ROOMS) {
+    const g = quiet({ skill: 2 });
+    enterRoom(g, m.id, Object.keys(m.exits)[0]);
+    const geo = g.room.geo;
+    for (const b of geo.blocks.filter((x) => x.kind === 'barrel')) {
+      for (let r = 1; r < H - 1; r++) {
+        for (let c = 1; c < W - 1; c++) {
+          const x = c + 0.5;
+          const y = r + 0.5;
+          const d = Math.hypot(x - b.x, y - b.y);
+          if (d < 3 || d > 6 || !walkableCell(geo, c, r) || wallDistance(geo, x, y, CELL.WALL) < 0.9 || blockAt(geo, x, y, 0.5)) continue;
+          const ux = (b.x - x) / d;
+          const uy = (b.y - y) / d;
+          // Clear up to the barrel's face.
+          if (!lineClear(geo, x, y, b.x - ux * 0.75, b.y - uy * 0.75, { podsOn: true, rad: 0.1 })) continue;
+          place(g, x, y);
+          const before = g.score;
+          const ev = run(g, (i) => ({ x: 0, y: 0, fire: i < 2, aim: { x: b.x, y: b.y } }), 40);
+          const boom = find(ev, 'barrelBoom');
+          assert.ok(boom, `room ${m.id}: the shot blew up the barrel`);
+          assert.equal(boom.chain, false);
+          assert.equal(b.gone, true);
+          assert.equal(geo.solid[b.r * W + b.c], CELL.FLOOR);
+          assert.equal(blockAt(geo, b.x, b.y, 0.3), null);
+          assert.ok(g.score >= before + SCORE.barrel);
+          // The parsed room is untouched: the next visit has its barrel back.
+          enterRoom(g, m.id, Object.keys(m.exits)[0]);
+          assert.equal(g.room.geo.blocks[b.i].gone, false);
+          return;
+        }
+      }
+    }
+  }
+  throw new Error('no barrel with a clear shot found');
+});
+
+test('barrels: the blast kills Shamus close by, wrecks robots, stuns the Shadow, and chains', () => {
+  const { g, b } = barrelRoom((geo, x) => geo.blocks.some((o) => o !== x && o.kind === 'barrel' && Math.hypot(o.x - x.x, o.y - x.y) <= BARREL.chain));
+  g.cheats.noFoes = false;
+  const geo = g.room.geo;
+  const near = geo.blocks.find((o) => o !== b && o.kind === 'barrel' && Math.hypot(o.x - b.x, o.y - b.y) <= BARREL.chain);
+  // Robots on open cells next to the barrel: a plain droid, a plated one, and a warden.
+  const cells = [];
+  for (let r = b.r - 1; r <= b.r + 1; r++) for (let c = b.c - 1; c <= b.c + 1; c++) if (walkableCell(geo, c, r)) cells.push([c, r]);
+  const types = [['droid', false], ['droid', true], ['warden', false]].slice(0, cells.length);
+  const foes = types.map(([t, a], k) => addFoe(g, t, cells[k][0], cells[k][1], a));
+  // Shamus right beside it too.
+  place(g, b.x + 1, b.y);
+  g.events.length = 0;
+  explodeBarrel(g, b);
+  const ev = g.events.slice();
+  assert.equal(find(ev, 'playerDie')?.cause, 'barrel');
+  for (const [k, f] of foes.entries()) {
+    const [t] = types[k];
+    if (t === 'warden') assert.equal(f.hp, f.maxHp - BARREL.damage, 'the warden lost two plates');
+    else assert.ok(!g.foes.includes(f), `${t} wrecked`);
+  }
+  assert.ok(ev.some((e) => e.type === 'foeDie' && e.by === 'barrel'));
+  assert.equal(near.fuse, BARREL.fuse, 'the neighbor is lit');
+  // Shielded, Shamus survives a blast, and the lit barrel goes off a fuse later.
+  const h = barrelRoom((geo2, x) => geo2.blocks.some((o) => o !== x && o.kind === 'barrel' && Math.hypot(o.x - x.x, o.y - x.y) <= BARREL.chain));
+  const b2 = h.b;
+  const n2 = h.g.room.geo.blocks.find((o) => o !== b2 && o.kind === 'barrel' && Math.hypot(o.x - b2.x, o.y - b2.y) <= BARREL.chain);
+  h.g.player.shieldT = 10;
+  place(h.g, b2.x + 1, b2.y);
+  h.g.events.length = 0;
+  explodeBarrel(h.g, b2);
+  assert.equal(h.g.player.alive, true, 'the shield takes the blast');
+  const later = run(h.g, IDLE, Math.ceil(BARREL.fuse / DT) + 2);
+  const chained = later.find((e) => e.type === 'barrelBoom' && e.block === n2.i);
+  assert.ok(chained, 'the neighbor blew');
+  assert.equal(chained.chain, true);
+  // The Shadow in reach is stunned.
+  const s = barrelRoom();
+  s.g.cheats.noShadow = false;
+  s.g.room.t = s.g.room.shadowAt;
+  run(s.g, IDLE, Math.ceil(SHADOW.enterTime / DT) + 30);
+  assert.ok(s.g.shadow, 'the Shadow came');
+  s.g.player.shieldT = 0;
+  s.g.cheats.invuln = true;
+  s.g.shadow.x = s.b.x + 1;
+  s.g.shadow.y = s.b.y;
+  s.g.shadow.immuneT = 0;
+  s.g.events.length = 0;
+  explodeBarrel(s.g, s.b);
+  assert.ok(find(s.g.events, 'shadowStun') || s.g.shadow.state === 'stunned' || find(s.g.events, 'shotHit')?.what === 'shadow', 'the blast reached him');
+});
+
+// A console room and a point where Shamus stands against one of its consoles.
+function consoleSpot(g, roomId) {
+  const m = ROOMS[roomId];
+  enterRoom(g, roomId, Object.keys(m.exits)[0]);
+  const geo = g.room.geo;
+  for (const t of geo.blocks.filter((x) => x.kind === 'terminal')) {
+    for (const [dc, dr] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      if (!walkableCell(geo, t.c + dc, t.r + dr)) continue;
+      const gap = 0.42 + PLAYER.radius + CONSOLE.reach * 0.5;
+      const x = t.x + dc * gap;
+      const y = t.y + dr * gap;
+      if (wallDistance(geo, x, y, CELL.WALL) < 0.6 || blockAt(geo, x, y, PLAYER.radius - 0.01)) continue;
+      return { t, x, y };
+    }
+  }
+  return null;
+}
+
+test('consoles: walking up to one maps its whole section once and scores it', () => {
+  // A console room whose section has several rooms.
+  const owner = ROOMS.map((m) => m.id).find((id) => sectionOf(id) === id && sectionRooms(id).length >= 3);
+  const g = quiet({ skill: 2 });
+  assert.equal(SKILLS[2].autoMap, false);
+  const spot = consoleSpot(g, owner);
+  assert.ok(spot, `room ${owner} has a console to stand at`);
+  assert.equal(g.mapped[owner], undefined, 'Detective does not map rooms you walk into');
+  assert.equal(spot.t.state, 'idle');
+  place(g, spot.x, spot.y);
+  const before = g.score;
+  let ev = run(g, IDLE, 2);
+  const use = find(ev, 'consoleUse');
+  assert.ok(use?.fresh, 'a fresh section');
+  assert.equal(use.rooms, sectionRooms(owner).length);
+  assert.equal(use.points, SCORE.mapSection * ROOMS[owner].zone);
+  assert.equal(g.score - before, use.points);
+  for (const id of sectionRooms(owner)) assert.equal(g.mapped[id], true);
+  assert.equal(spot.t.state, 'used');
+  // No second score, here or on a return visit, where its consoles start out used.
+  ev = run(g, IDLE, 30);
+  assert.equal(count(ev, 'consoleUse'), 0);
+  enterRoom(g, owner, Object.keys(ROOMS[owner].exits)[0]);
+  assert.ok(g.room.geo.blocks.filter((b) => b.kind === 'terminal').every((b) => b.state === 'used'));
+  // Rookie maps every room on entry.
+  const r = quiet({ skill: 0 });
+  enterRoom(r, 1, Object.keys(ROOMS[1].exits)[0]);
+  assert.equal(r.mapped[1], true);
+});
+
+test('consoles: on the hardest skill shots and barrel blasts wreck them for good', () => {
+  assert.equal(SKILLS[3].consolesBreak, true);
+  assert.ok(!SKILLS[2].consolesBreak);
+  // A console with a clear shot at it.
+  for (const m of ROOMS) {
+    const g = quiet({ skill: 3 });
+    const spot = consoleSpot(g, m.id);
+    if (!spot) continue;
+    const t = spot.t;
+    // Stand two cells off the side with the open floor and shoot it.
+    const dx = Math.sign(spot.x - t.x);
+    const dy = Math.sign(spot.y - t.y);
+    const x = t.x + dx * 2.2;
+    const y = t.y + dy * 2.2;
+    if (!walkableCell(g.room.geo, Math.floor(x), Math.floor(y)) || wallDistance(g.room.geo, x, y, CELL.WALL) < 0.6) continue;
+    if (!lineClear(g.room.geo, x, y, t.x + dx * 0.6, t.y + dy * 0.6, { rad: 0.1 })) continue;
+    place(g, x, y);
+    const ev = run(g, (i) => ({ x: 0, y: 0, fire: i < 2, aim: { x: t.x, y: t.y } }), 30);
+    if (!find(ev, 'consoleBreak')) continue;
+    assert.equal(find(ev, 'consoleBreak').by, 'shot');
+    assert.equal(t.state, 'broken');
+    assert.deepEqual(g.broken[m.id], [t.i]);
+    // A broken console can't be used, and it stays broken on the next visit and in a snapshot.
+    place(g, spot.x, spot.y);
+    assert.equal(count(run(g, IDLE, 2), 'consoleUse'), 0);
+    enterRoom(g, m.id, Object.keys(m.exits)[0]);
+    assert.equal(g.room.geo.blocks[t.i].state, 'broken');
+    const back = createGame({ skill: 3, from: makeSnapshot(g) });
+    assert.deepEqual(back.broken[m.id], [t.i]);
+    // The same shot on Detective only sparks.
+    const d = quiet({ skill: 2 });
+    consoleSpot(d, m.id);
+    place(d, x, y);
+    const ev2 = run(d, (i) => ({ x: 0, y: 0, fire: i < 2, aim: { x: t.x, y: t.y } }), 30);
+    assert.equal(count(ev2, 'consoleBreak'), 0);
+    return;
+  }
+  throw new Error('no console with a clear shot found');
+});
+
+test('sections: every room is in exactly one, inside its own sector, around a console room', () => {
+  const seen = new Set();
+  for (const m of ROOMS) {
+    const owner = sectionOf(m.id);
+    assert.equal(ROOMS[owner].zone, m.zone, `room ${m.id}: its section is in its sector`);
+    assert.ok(sectionRooms(owner).includes(m.id));
+    assert.ok(getRoom(owner).blocks.some((b) => b.kind === 'terminal') || owner === m.id);
+    seen.add(m.id);
+  }
+  assert.equal(seen.size, ROOMS.length);
+  const total = [...new Set(ROOMS.map((m) => sectionOf(m.id)))].reduce((n, o) => n + sectionRooms(o).length, 0);
+  assert.equal(total, ROOMS.length, 'no room in two sections');
+});
+
+test('skills: Detective is the default, Gumshoe is hidden, and a new loop skips hidden skills', () => {
+  assert.equal(SKILLS[DEFAULT_SKILL].name, 'Detective');
+  assert.ok(!SHOWN_SKILLS.includes(1));
+  assert.deepEqual(SHOWN_SKILLS, [0, 2, 3]);
+  const g = quiet({ skill: 0 });
+  newLoop(g);
+  assert.equal(g.skill, 2);
+  // Mapped rooms and sections survive a snapshot.
+  g.mapped[5] = true;
+  g.sections[8] = true;
+  const back = createGame({ skill: 2, from: makeSnapshot(g) });
+  assert.equal(back.mapped[5], true);
+  assert.equal(back.sections[8], true);
 });
 
 test('bolts kill Shamus; the shield stops them; a shot and a bolt destroy each other', () => {

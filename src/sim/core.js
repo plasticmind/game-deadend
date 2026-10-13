@@ -37,7 +37,7 @@ export function addScore(game, points) {
   }
 }
 
-// Whether `cause` ('wall', 'pod', 'foe', 'bolt', 'shadow') can kill Shamus right now.
+// Whether `cause` ('wall', 'pod', 'foe', 'bolt', 'shadow', 'barrel') can kill Shamus now.
 // Electric walls and live gates always can. The invuln cheat and the respawn grace stop
 // everything else; the mystery shield stops robots and bolts but not the Shadow.
 export function canHurt(game, cause) {
@@ -45,7 +45,7 @@ export function canHurt(game, cause) {
   if (!p.alive || game.mode !== 'play') return false;
   if (cause === 'wall' || cause === 'pod') return true;
   if (game.cheats.invuln || p.invulnT > 0) return false;
-  if ((cause === 'foe' || cause === 'bolt') && p.shieldT > 0) return false;
+  if ((cause === 'foe' || cause === 'bolt' || cause === 'barrel') && p.shieldT > 0) return false;
   if (game.shadow && game.shadow.state === 'dying') return false; // the lair is won
   return true;
 }
@@ -67,6 +67,8 @@ export function killPlayer(game, cause, foe = null) {
   p.aiming = false;
   p.freeAim = false;
   p.queueT = 0;
+  p.heat = 0;
+  p.overheatT = 0;
   p.moving = false;
   game.mode = 'dying';
   game.stats.deaths++;

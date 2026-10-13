@@ -8,6 +8,10 @@ import { KEY_COLORS } from '../map.js';
 
 const TAU = Math.PI * 2;
 const ICE = new THREE.Color(0.55, 0.8, 1.0);
+// The ION-SHIV's glow from cold to overheated.
+const SHIV_COOL = new THREE.Color(0.6, 1.4, 3.2);
+const SHIV_WARM = new THREE.Color(2.9, 1.25, 0.28);
+const SHIV_HOT = new THREE.Color(3.2, 0.38, 0.14);
 const ROBOT_SCALE = { droid: 1.75, drone: 1.65, jumper: 1.7, sniffer: 1.65, warden: 1.55 };
 // Brass means armor: every brass piece on a robot is one more hit it can take. Armored
 // robots are also a little bigger.
@@ -54,57 +58,81 @@ const STREAK_FRAG = /* glsl */ `
   }
 `;
 
+// The Shadow is drawn as the hub art draws him: a flat figure on a card that leans back
+// toward the camera, so his hat, cloak, and reaching claw read from straight above.
+// The sheet (textures.js shadowFigure) holds the silhouette in red and the eyes in blue.
 const SHADOW_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uSway;
-  varying vec3 vN;
-  varying vec3 vV;
-  varying vec3 vObj;
+  varying vec2 vUv;
   void main() {
+    vUv = uv;
     vec3 p = position;
-    float k = clamp(1.0 - p.y / 1.4, 0.0, 1.0);
-    p.x += sin(uTime * 1.7 + p.y * 2.5 + p.z * 3.0) * 0.06 * k * uSway;
-    p.z += cos(uTime * 1.3 + p.y * 2.0 + p.x * 3.0) * 0.06 * k * uSway;
-    vObj = p;
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    vN = normalize(normalMatrix * normal);
-    vV = normalize(-mv.xyz);
-    gl_Position = projectionMatrix * mv;
+    // The cloak's hem sways; the hat stays put.
+    float k = (1.0 - uv.y) * (1.0 - uv.y);
+    p.x += sin(uTime * 1.7 + uv.y * 5.0) * 0.07 * k * uSway;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `;
 const SHADOW_FRAG = /* glsl */ `
+  uniform sampler2D uMap;
   uniform float uTime;
   uniform float uAlpha;
   uniform float uStun;
   uniform float uDissolve;
-  varying vec3 vN;
-  varying vec3 vV;
-  varying vec3 vObj;
-  float h3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-  float n3(vec3 p) {
-    vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-    float a = mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y);
-    float b = mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y);
-    return mix(a, b, f.z) * 2.0 - 1.0;
+  uniform float uEyes;
+  varying vec2 vUv;
+  float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float n2(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y);
   }
   void main() {
-    float n = n3(vObj * 4.5 + vec3(0.0, -uTime * 0.8, uTime * 0.25));
-    float n2 = n3(vObj * 10.0 + vec3(uTime * 0.45));
-    if (uDissolve > 0.0 && (n * 0.5 + 0.5) * 0.8 + (1.0 - vObj.y / 2.1) * 0.2 < uDissolve) discard;
-    float fr = clamp(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0);
-    float fres = fr * fr;
-    float edge = smoothstep(0.45, 0.95, fres + n * 0.25 + n2 * 0.1);
-    vec3 base = mix(vec3(0.035, 0.008, 0.07), vec3(0.2, 0.18, 0.28), uStun);
-    base += vec3(0.05, 0.0, 0.09) * (0.5 + 0.5 * n);
-    vec3 rim = mix(vec3(0.55, 0.22, 1.0), vec3(0.8, 0.8, 1.0), uStun);
-    vec3 col = base + rim * edge * 0.75;
-    float hem = smoothstep(0.0, 0.45, vObj.y);
-    float a = (0.64 + 0.3 * edge) * uAlpha * mix(0.2, 1.0, hem);
-    a *= 1.0 - smoothstep(0.8, 1.0, fres) * (0.55 + 0.45 * n2);
-    gl_FragColor = vec4(col, a);
+    vec4 t = texture2D(uMap, vUv);
+    float body = t.r;
+    // Blurred copies of the silhouette from the mip chain: one for the rim, a wider one
+    // for the violet backlight.
+    float soft = texture2D(uMap, vUv, 1.4).r;
+    float wide = texture2D(uMap, vUv, 3.6).r;
+    // The backlight fades out before the card's edges, so the card itself never shows.
+    float frame = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x) * smoothstep(0.0, 0.05, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
+    float n = n2(vUv * vec2(9.0, 13.0) + vec2(0.0, -uTime * 0.7));
+    float nf = n2(vUv * vec2(24.0, 32.0) + vec2(uTime * 0.5, 0.0));
+    // Smoky edges: noise eats into the silhouette near its border, drifting slowly.
+    float edgeZone = 1.0 - abs(soft * 2.0 - 1.0);
+    float a = smoothstep(0.3, 0.6, body - (n - 0.5) * 0.55 * edgeZone);
+    if (uDissolve > 0.0) a *= step(uDissolve, n * 0.65 + nf * 0.25 + vUv.y * 0.1);
+    float rim = clamp((body - soft) * 2.6 - 0.3, 0.0, 1.0);
+    vec3 base = mix(vec3(0.016, 0.005, 0.03), vec3(0.17, 0.16, 0.24), uStun);
+    base += vec3(0.025, 0.0, 0.05) * n;
+    vec3 rimC = mix(vec3(0.75, 0.32, 1.7), vec3(1.0, 1.0, 1.5), uStun);
+    vec3 col = base + rimC * rim;
+    float glow = clamp(wide * 1.3, 0.0, 1.0) * (1.0 - a) * (0.55 + 0.45 * n) * (1.0 - uDissolve) * frame;
+    float eye = t.b * uEyes;
+    col = mix(col, vec3(3.8, 2.8, 0.45), clamp(eye * 1.5, 0.0, 1.0));
+    float alpha = a * 0.97 + glow * 0.5;
+    col = mix(vec3(0.42, 0.16, 0.95), col, a / max(alpha, 0.001));
+    alpha = max(alpha, clamp(eye, 0.0, 1.0));
+    gl_FragColor = vec4(col, alpha * uAlpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
+`;
+// His long shadow on the floor: the same silhouette, flattened and stretched away from
+// the key light.
+const CAST_FRAG = /* glsl */ `
+  uniform sampler2D uMap;
+  uniform float uAlpha;
+  varying vec2 vUv;
+  void main() {
+    float s = texture2D(uMap, vUv, 1.5).r;
+    float fade = 1.0 - vUv.y * 0.55;
+    gl_FragColor = vec4(0.02, 0.0, 0.04, s * fade * 0.62 * uAlpha);
+  }
+`;
+const CAST_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 
 const BUBBLE_FRAG = /* glsl */ `
@@ -200,6 +228,17 @@ function buildShamus(kit) {
   armR.position.set(0, 0.578, 0.168);
   armL.add(mesh(armGeo, mat));
   armR.add(mesh(armGeo, mat), mesh(shivGeo, mat), mesh(shivGlowGeo, shivMat, { cast: false }));
+  // A halo at the muzzle so the shiv's heat reads from up above, and a marker the
+  // renderer reads for where steam and sparks come out.
+  const haloMat = new THREE.SpriteMaterial({ map: kit.tex.glow, color: SHIV_COOL.clone(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const halo = new THREE.Sprite(haloMat);
+  halo.position.set(0, -0.5, 0);
+  halo.scale.setScalar(0.18);
+  halo.renderOrder = 6;
+  armR.add(halo);
+  const tip = new THREE.Object3D();
+  tip.position.set(0, -0.53, 0);
+  armR.add(tip);
   pose.add(legL, legR, armL, armR);
   const hat = new THREE.Group();
   hat.add(mesh(hatGeo, mat));
@@ -240,13 +279,13 @@ function buildShamus(kit) {
 
   const mats = [mat, visorMat, shivMat];
   return {
-    pool, poolMat,
+    pool, poolMat, halo, haloMat, tip, shivMat,
     root, pose, legL, legR, armL, armR, hat, bubble, bubbleMat, boost, boostMat, mat, mats,
     yaw: 0, legA: 0, armLA: 0, armRA: 0, aim: 0, dyingT: -1,
     geos: [body, hatGeo, legGeo, armGeo, shivGeo, shivGlowGeo, visorGeo, bubble.geometry],
     dispose() {
       for (const g of this.geos) g.dispose();
-      for (const m of [...mats, bubbleMat, boostMat, poolMat]) m.dispose();
+      for (const m of [...mats, bubbleMat, boostMat, poolMat, haloMat]) m.dispose();
     },
   };
 }
@@ -494,67 +533,93 @@ function buildRobot(type, P, M, kit) {
 }
 
 // ---------------------------------------------------------------------- the Shadow
+// Card size in room units (the sheet is 2:3). The hem is about as wide as his reach.
+const SHADOW_H = 3.3;
+const SHADOW_W = 2.2;
+const SHADOW_LEAN = 0.44; // radians the card leans back toward the camera
+// Eyes on the sheet (pixels of 256 x 384), for the glow sprites.
+const EYE_PX = [[122, 118], [150, 118]];
+// The key light comes from the north-east, so his shadow falls to the south-west.
+const CAST_DIR = Math.atan2(7, -5);
+const CAST_LEN = 2.6;
+
 function buildShadow(kit) {
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uAlpha: { value: 1 }, uStun: { value: 0 }, uDissolve: { value: 0 }, uSway: { value: 1 } },
+    uniforms: {
+      uMap: { value: kit.tex.shadow },
+      uTime: { value: 0 },
+      uAlpha: { value: 1 },
+      uStun: { value: 0 },
+      uDissolve: { value: 0 },
+      uEyes: { value: 1 },
+      uSway: { value: 1 },
+    },
     vertexShader: SHADOW_VERT,
     fragmentShader: SHADOW_FRAG,
     transparent: true,
-    depthWrite: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
   });
-  const geo = bake([
-    [lathe([[0.02, 0.0], [0.56, 0.02], [0.5, 0.18], [0.42, 0.55], [0.34, 0.95], [0.29, 1.25], [0.25, 1.38], [0.14, 1.46], [0.08, 1.5]], 22), '#ffffff'],
-    [lathe([[0.3, 1.24], [0.36, 1.33], [0.3, 1.47], [0.2, 1.52]], 18), '#ffffff'],
-    [sph(0.165, 16, 12), '#ffffff', { y: 1.6 }],
-    [cyl(0.36, 0.38, 0.03, 26), '#ffffff', { y: 1.73 }],
-    [cyl(0.16, 0.19, 0.25, 18), '#ffffff', { y: 1.86 }],
-  ]);
+  const cardGeo = new THREE.PlaneGeometry(SHADOW_W, SHADOW_H).translate(0, SHADOW_H / 2, 0);
   const root = new THREE.Group();
-  root.scale.setScalar(1.15);
-  const body = new THREE.Mesh(geo, mat);
+  const tilt = new THREE.Group();
+  tilt.rotation.x = -SHADOW_LEAN;
+  const roll = new THREE.Group();
+  const flip = new THREE.Group();
+  root.add(tilt);
+  tilt.add(roll);
+  roll.add(flip);
+  const body = new THREE.Mesh(cardGeo, mat);
   body.renderOrder = 7;
-  root.add(body);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.5, 0.45), transparent: true });
-  const eyeGeo = sph(0.034, 10, 8);
-  const eyes = [];
+  flip.add(body);
+
+  // Eye glows on top of the painted eyes, for bloom and for the Low tier.
+  const glowMat = new THREE.SpriteMaterial({ map: kit.tex.glow, color: new THREE.Color(1.8, 1.35, 0.2), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const glows = [];
-  const glowMat = new THREE.SpriteMaterial({ map: kit.tex.glow, color: new THREE.Color(2.2, 1.7, 0.25), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
-  for (const z of [0.065, -0.065]) {
-    const e = new THREE.Mesh(eyeGeo, eyeMat);
-    e.position.set(0.15, 1.62, z);
-    e.renderOrder = 8;
-    root.add(e);
-    eyes.push(e);
+  for (const [px, py] of EYE_PX) {
     const g = new THREE.Sprite(glowMat);
-    g.position.set(0.42, 1.6, z * 1.6);
-    g.scale.setScalar(0.34);
+    g.position.set((px / 256 - 0.5) * SHADOW_W, (1 - py / 384) * SHADOW_H, 0.02);
+    g.scale.setScalar(0.24);
     g.renderOrder = 9;
-    root.add(g);
+    flip.add(g);
     glows.push(g);
   }
   // Stun stars circling the hat.
   const starMat = new THREE.SpriteMaterial({ map: kit.tex.glow, color: new THREE.Color(2.0, 1.9, 1.2), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
   const stars = [];
   for (let i = 0; i < 4; i++) {
-    const s = new THREE.Sprite(starMat);
-    s.scale.setScalar(0.16);
-    s.renderOrder = 9;
-    root.add(s);
-    stars.push(s);
+    const st = new THREE.Sprite(starMat);
+    st.scale.setScalar(0.2);
+    st.renderOrder = 9;
+    flip.add(st);
+    stars.push(st);
   }
-  const blobMat = new THREE.MeshBasicMaterial({ map: kit.tex.soft, color: new THREE.Color(0.12, 0.0, 0.2), transparent: true, opacity: 0.7, depthWrite: false });
+  // A violet pool under him and his long shadow across the floor.
+  const blobMat = new THREE.MeshBasicMaterial({ map: kit.tex.soft, color: new THREE.Color(0.12, 0.0, 0.22), transparent: true, opacity: 0.7, depthWrite: false });
   const blob = new THREE.Mesh(kit.geo.flat, blobMat);
-  blob.scale.set(1.5, 1, 1.5);
+  blob.scale.set(1.9, 1, 1.9);
   blob.position.y = 0.012;
   root.add(blob);
+  const castMat = new THREE.ShaderMaterial({
+    uniforms: { uMap: { value: kit.tex.shadow }, uAlpha: { value: 1 } },
+    vertexShader: CAST_VERT,
+    fragmentShader: CAST_FRAG,
+    transparent: true,
+    depthWrite: false,
+  });
+  const castGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0).rotateX(-Math.PI / 2);
+  const cast = new THREE.Mesh(castGeo, castMat);
+  cast.rotation.y = CAST_DIR;
+  cast.renderOrder = 2;
+  root.add(cast);
   root.visible = false;
   return {
-    root, body, mat, eyes, glows, eyeMat, glowMat, stars, starMat, blobMat,
-    yaw: 0, state: '', stateT: 0, gone: 1, fade: 0,
+    root, body, mat, tilt, roll, flip, glows, glowMat, stars, starMat, blobMat, blob, cast, castMat,
+    yaw: 0, face: 1, lean: 0, state: '', stateT: 0, gone: 1, fade: 0,
     dispose() {
-      geo.dispose();
-      eyeGeo.dispose();
-      for (const m of [mat, eyeMat, glowMat, starMat, blobMat]) m.dispose();
+      cardGeo.dispose();
+      castGeo.dispose();
+      for (const m of [mat, glowMat, starMat, blobMat, castMat]) m.dispose();
     },
   };
 }
@@ -736,6 +801,8 @@ export class Actors {
 
     this.shamus = buildShamus(kit);
     this.root.add(this.shamus.root);
+    // World position of the ION-SHIV's muzzle, updated every frame.
+    this.shivTip = new THREE.Vector3();
     this.shadow = buildShadow(kit);
     this.root.add(this.shadow.root);
     this.items = buildItems(kit);
@@ -908,6 +975,23 @@ export class Actors {
     }
     S.boost.visible = !!p.boost && !dying;
     if (S.boost.visible) S.boostMat.opacity = 0.55 + (o.rm ? 0 : 0.15 * Math.sin(o.time * 3));
+
+    // Heat: the glow runs from blue through orange to red. Overheated, it sputters in a
+    // slow swell (about 1.2 Hz, steady with reduced motion) until the sim cools it.
+    const heat = clamp01(p.heat ?? 0);
+    const c = S.shivMat.color;
+    if (p.overheatT > 0) {
+      c.copy(SHIV_HOT).multiplyScalar(o.rm ? 0.6 : 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(o.time * TAU * 1.2)));
+    } else if (heat < 0.55) {
+      c.copy(SHIV_COOL).lerp(SHIV_WARM, smooth(heat / 0.55));
+    } else {
+      c.copy(SHIV_WARM).lerp(SHIV_HOT, smooth((heat - 0.55) / 0.45));
+    }
+    S.haloMat.color.copy(c).multiplyScalar(0.55);
+    S.haloMat.opacity = alpha;
+    S.halo.scale.setScalar(0.17 + 0.2 * Math.max(heat, p.overheatT > 0 ? 1 : 0));
+    S.root.updateMatrixWorld(true);
+    S.tip.getWorldPosition(this.shivTip);
   }
 
   updateRobots(game, o) {
@@ -1067,12 +1151,16 @@ export class Actors {
     const S = this.shadow;
     const s = game.shadow;
     const dt = o.dt;
+    const U = S.mat.uniforms;
     if (!s) {
       // He left (room change) or never came: fade quickly.
       if (S.root.visible) {
         S.fade -= dt * 4;
         if (S.fade <= 0) S.root.visible = false;
-        else S.mat.uniforms.uAlpha.value = S.fade;
+        else {
+          U.uAlpha.value = S.fade;
+          S.castMat.uniforms.uAlpha.value = S.fade;
+        }
       }
       S.state = '';
       return;
@@ -1083,13 +1171,12 @@ export class Actors {
       S.stateT = 0;
     } else S.stateT += dt;
     const p = game.player;
-    S.root.position.set(toX(s.x), 0, toZ(s.y));
-    const target = Math.atan2(-(p.y - s.y), p.x - s.x);
-    S.yaw = approachAngle(S.yaw, target, 5, dt);
-    S.root.rotation.y = S.yaw;
-    const U = S.mat.uniforms;
+    // Face Shamus: the painted figure reaches right, so mirror it when he is to the left.
+    const want = p.x < s.x - 0.05 ? -1 : p.x > s.x + 0.05 ? 1 : S.face;
+    S.face = approach(S.face, want, 12, dt);
+    S.flip.scale.x = Math.abs(S.face) < 0.06 ? 0.06 * Math.sign(S.face || 1) : S.face;
     U.uTime.value = o.time;
-    U.uSway.value = o.rm ? 0.25 : 1;
+    U.uSway.value = o.rm ? 0.2 : 1;
     let alpha = 1;
     let stun = 0;
     let dissolve = 0;
@@ -1098,10 +1185,11 @@ export class Actors {
     let lean = 0;
     const prog = s.dur > 0 ? clamp01(s.t / s.dur) : -1;
     if (s.state === 'enter') {
+      // He rises out of the floor and fades in; the eyes open last.
       const k = smooth(prog >= 0 ? prog : S.stateT / 0.9);
-      alpha = k;
-      rise = (1 - k) * -0.5;
-      eyes = smooth(prog >= 0 ? (prog - 0.3) / 0.7 : (S.stateT - 0.3) / 0.6);
+      alpha = 0.25 + 0.75 * k;
+      rise = (1 - k) * -1.6;
+      eyes = smooth(prog >= 0 ? (prog - 0.35) / 0.65 : (S.stateT - 0.3) / 0.6);
     } else if (s.state === 'stunned') {
       stun = 1;
       eyes = 0.3;
@@ -1112,43 +1200,39 @@ export class Actors {
     } else if (s.state === 'charge') {
       // Rearing back (still), then leaning hard into the rush; eyes blaze.
       const rushing = Math.abs(s.vx || 0) + Math.abs(s.vy || 0) > 0.01;
-      lean = rushing ? 0.35 : -0.22 * smooth(S.stateT / 0.3);
-      eyes = 1.9;
+      lean = rushing ? 0.3 : -0.18 * smooth(S.stateT / 0.3);
+      eyes = 1.8;
     } else if (s.state === 'chase') {
-      lean = 0.1;
+      lean = 0.08;
     }
-    S.lean = approach(S.lean ?? 0, lean, 10, dt);
-    S.body.rotation.z = -S.lean;
-    for (const e of S.eyes) e.rotation.z = -S.lean;
+    // Lean toward where he is going (screen left or right), in the card's own plane.
+    const dir = Math.sign((s.vx || 0) || (p.x - s.x)) || 1;
+    S.lean = approach(S.lean, lean * dir, 10, dt);
+    S.roll.rotation.z = -S.lean;
+    const bob = o.rm ? 0 : Math.sin(o.time * 1.6) * 0.05;
+    S.root.position.set(toX(s.x), rise + bob, toZ(s.y));
     S.fade = alpha;
     U.uAlpha.value = alpha;
     U.uStun.value = approach(U.uStun.value, stun, 8, dt);
     U.uDissolve.value = dissolve;
-    S.body.position.y = rise + (o.rm ? 0 : Math.sin(o.time * 1.6) * 0.04);
-    S.eyeMat.opacity = Math.min(1, eyes);
-    S.glowMat.opacity = Math.min(1, eyes);
-    const eyeScale = 0.34 * (eyes > 1 ? eyes : 1);
-    // Eyes ride the body's lean: rotate (0.15, 1.62) about the feet.
-    const sl = Math.sin(-S.lean);
-    const cl = Math.cos(-S.lean);
-    const ex = 0.15 * cl - 1.62 * sl;
-    const ey = 0.15 * sl + 1.62 * cl + S.body.position.y;
-    for (const e of S.eyes) e.position.set(ex, ey, e.position.z);
-    // The glows sit just past the brim so the steep camera still sees them.
-    const gx = 0.42 * cl - 1.6 * sl;
-    const gy = 0.42 * sl + 1.6 * cl + S.body.position.y;
-    for (const g of S.glows) {
-      g.position.set(gx, gy, g.position.z);
-      g.scale.setScalar(eyeScale);
-    }
+    U.uEyes.value = Math.min(1, eyes);
+    S.glowMat.opacity = Math.min(1, eyes) * alpha;
+    S.glows[0].scale.setScalar(0.24 * Math.max(1, eyes));
+    S.glows[1].scale.setScalar(0.24 * Math.max(1, eyes));
+    // The floor pieces stay on the floor while he rises out of it.
+    const floorY = 0.012 - S.root.position.y;
+    S.blob.position.y = floorY;
+    S.cast.position.y = floorY + 0.001;
+    S.cast.scale.set(SHADOW_W * S.flip.scale.x, 1, CAST_LEN * (0.4 + 0.6 * (1 + rise / 1.6)));
     S.blobMat.opacity = 0.7 * alpha * (1 - dissolve);
+    S.castMat.uniforms.uAlpha.value = alpha * (1 - dissolve);
     const stunned = s.state === 'stunned';
     for (let i = 0; i < S.stars.length; i++) {
       const st = S.stars[i];
       st.visible = stunned;
       if (!stunned) continue;
       const a = (o.rm ? 0 : o.time * 2.5) + (i * TAU) / S.stars.length;
-      st.position.set(Math.cos(a) * 0.45, 2.05 + S.body.position.y, Math.sin(a) * 0.45);
+      st.position.set(Math.cos(a) * 0.55, SHADOW_H * 0.97, Math.sin(a) * 0.3);
     }
   }
 

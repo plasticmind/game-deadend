@@ -2,14 +2,32 @@
 // its door frames, electric walls (posts, rails, beams), pod gates, locked-door force
 // fields, blocks, decor, a baked light-spill map, and the machinery around it.
 // Shared pieces come from the kit; everything this file creates is disposed with it.
+//
+// Barrels and consoles change during a visit (geo is the visit's own copy): each frame
+// the view hides blown barrels, makes lit ones glow and shake, and tints each console's
+// screen for its state.
 
 import * as THREE from 'three';
 import { ARM, LOCK_FACE, DOOR } from '../room.js';
 import { ZONES, KEY_COLORS } from '../map.js';
 import { BEAM_Y, BORDER_BEAM_Y, GX, GZ, LEDGE_TOP } from './kit.js';
 import { ribbonGeometry, postRibbonGeometry, fieldMaterial } from './electric.js';
-import { toX, toZ, mulberry, bake, worldBox } from './util.js';
+import { toX, toZ, mulberry, bake, worldBox, clamp01 } from './util.js';
 import { toTexture } from './textures.js';
+import { SKILLS, BARREL } from '../sim/tuning.js';
+
+// Console screen colors (linear, above 1 so they bloom).
+const SCREEN = {
+  idle: new THREE.Color(0.32, 1.55, 0.55),
+  used: new THREE.Color(0.3, 1.25, 1.85),
+  broken: new THREE.Color(0.05, 0.035, 0.03),
+  surge: new THREE.Color(1.6, 2.3, 2.6),
+};
+const BARREL_HOT = new THREE.Color(2.6, 1.15, 0.55);
+const SPARK = new THREE.Color(1.8, 1.1, 0.35);
+const EMBER = new THREE.Color(1.6, 0.5, 0.15);
+const WISP = new THREE.Color(0.14, 0.13, 0.13);
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -255,17 +273,52 @@ export class RoomView {
 
     // ---------------------------------------------------------------- blocks and decor
     const kinds = { crate: [], barrel: [], terminal: [] };
-    for (const b of geo.blocks) {
+    this.barrels = [];
+    this.consoles = [];
+    for (let i = 0; i < geo.blocks.length; i++) {
+      const b = geo.blocks[i];
       const item = { x: toX(b.x), z: toZ(b.y) };
       if (b.kind === 'crate') item.ry = Math.floor(rnd() * 4) * (Math.PI / 2);
-      if (b.kind === 'barrel') item.ry = rnd() * Math.PI * 2;
-      kinds[b.kind].push(item);
+      if (b.kind === 'barrel') {
+        item.ry = rnd() * Math.PI * 2;
+        this.barrels.push({ i, inst: kinds.barrel.length, x: item.x, z: item.z, ry: item.ry, gone: false, lit: false });
+      }
+      if (b.kind === 'terminal') this.consoles.push({ i, inst: kinds.terminal.length, x: item.x, z: item.z, state: '', surge: 0 });
+      kinds[b.kind]?.push(item);
     }
     this.instanced(G.crate, M.crate, kinds.crate, { cast: true, receive: true });
-    this.instanced(G.barrel, M.barrel, kinds.barrel, { cast: true, receive: true });
+    this.barrelMesh = this.instanced(G.barrel, M.barrel, kinds.barrel, { cast: true, receive: true });
     this.instanced(G.termBody, M.termBody, kinds.terminal, { cast: true, receive: true });
     this.instanced(G.termHood, M.bulk, kinds.terminal, { cast: true });
-    this.instanced(G.screen, M.screen, kinds.terminal);
+    this.screenMesh = this.instanced(G.screen, M.screen, kinds.terminal);
+    // Floor glow in front of each console's screen (it faces south, toward the camera).
+    this.consoleGlow = this.instanced(G.flat, M.consoleGlow, kinds.terminal.map((t) => ({ x: t.x, y: 0.011, z: t.z + 0.55, sx: 1.7, sz: 1.3 })), { order: 2 });
+    if (this.screenMesh) {
+      for (const C of this.consoles) {
+        this.screenMesh.setColorAt(C.inst, SCREEN.idle);
+        this.consoleGlow.setColorAt(C.inst, SCREEN.idle);
+      }
+    }
+    // Each barrel gets a fuse glow (hidden until a blast lights it) and the burn mark it
+    // leaves on the floor once it blows. Instance colors exist from the start, so a fuse
+    // that tints its barrel never forces a new shader mid-explosion.
+    if (this.barrelMesh) for (const B of this.barrels) this.barrelMesh.setColorAt(B.inst, _c.setRGB(1, 1, 1));
+    for (const B of this.barrels) {
+      B.glowMat = this.mine(new THREE.SpriteMaterial({ map: kit.tex.glow, color: new THREE.Color(2.2, 0.9, 0.25), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      B.glow = new THREE.Sprite(B.glowMat);
+      B.glow.position.set(B.x, 0.45, B.z);
+      B.glow.visible = false;
+      B.glow.renderOrder = 6;
+      this.group.add(B.glow);
+      B.burn = new THREE.Mesh(G.flat, M.scorch);
+      B.burn.position.set(B.x, 0.009, B.z);
+      B.burn.rotation.y = rnd() * Math.PI * 2;
+      B.burn.scale.set(1.6, 1, 1.6);
+      B.burn.visible = false;
+      B.burn.renderOrder = 2;
+      this.group.add(B.burn);
+      if (geo.blocks[B.i].gone) this.blowBarrel(B.i);
+    }
     const vents = [];
     const grates = [];
     for (const d of geo.decor) {
@@ -398,7 +451,6 @@ export class RoomView {
     for (const p of geo.posts) if (!isBorder(p)) spot(p.x, p.y, p.arms ? 0.8 : 1.0, zc, p.arms ? 0.07 : 0.2);
     const amber = [255, 160, 60];
     const red = [255, 40, 25];
-    const green = [70, 255, 120];
     const ex = geo.exits;
     for (const x of ex.N ? [2.5, 5.5, 15.5, 18.5] : [2.5, 6.5, 10.5, 14.5, 18.5]) spot(x, 1.0, 1.7, amber, 0.07);
     for (const x of ex.S ? [2.5, 5.5, 15.5, 18.5] : [2.5, 6.5, 10.5, 14.5, 18.5]) spot(x, 12.1, 1.3, amber, 0.05);
@@ -414,7 +466,6 @@ export class RoomView {
     };
     for (const s of Object.keys(ex)) for (const [x, y] of doorSpots[s]) spot(x, y, 1.5, red, 0.16);
     for (const b of geo.blocks) {
-      if (b.kind === 'terminal') spot(b.x, b.y + 0.75, 1.2, green, 0.12);
       if (b.kind === 'crate') spot(b.x, b.y, 0.95, amber, 0.035);
     }
     for (const d of geo.decor) if (d.kind === 'grate') spot(d.x, d.y, 0.7, amber, 0.08);
@@ -454,6 +505,7 @@ export class RoomView {
     if (s.warn > 0) _c.lerp(WARN_TINT, s.warn * 0.6);
     this.spillMat.color.copy(_c).multiplyScalar(gain);
     if (this.podSpillMat) this.podSpillMat.color.setScalar(0.12 + 0.88 * s.podOn);
+    if (game && game.room.geo === this.geo) this.updateProps(game, s);
     const live = game && game.room.id === this.id ? game.room.locks : null;
     for (const side in this.locks) {
       const L = this.locks[side];
@@ -475,6 +527,106 @@ export class RoomView {
         }
       }
     }
+  }
+
+  // Barrels: hide the blown ones; a lit fuse glows, shakes, and spits sparks.
+  // Consoles: screen color for the state, an attract pulse while one is waiting to be
+  // used and the map needs it, a surge after an uplink, and sparks from a wrecked one.
+  updateProps(game, s) {
+    const blocks = this.geo.blocks;
+    const t = s.time;
+    const fx = s.fx;
+    if (this.barrelMesh) {
+      let moved = false;
+      for (const B of this.barrels) {
+        const b = blocks[B.i];
+        if (B.gone) continue;
+        if (b.gone) {
+          this.blowBarrel(B.i);
+          continue;
+        }
+        const fuse = b.fuse || 0;
+        if (fuse > 0) {
+          const k = clamp01(1 - fuse / BARREL.fuse);
+          B.lit = true;
+          B.glow.visible = true;
+          B.glowMat.opacity = 0.45 + 0.55 * k;
+          B.glow.scale.setScalar(1.0 + 1.1 * k);
+          const sh = s.rm ? 0 : 0.03 + 0.05 * k;
+          _p.set(B.x + Math.sin(t * 67 + B.i) * sh, 0, B.z + Math.cos(t * 59 + B.i * 3) * sh);
+          _q.setFromAxisAngle(_up, B.ry + (s.rm ? 0 : Math.sin(t * 41 + B.i) * 0.12 * k));
+          _s.set(1, 1 + 0.06 * k, 1);
+          _m.compose(_p, _q, _s);
+          this.barrelMesh.setMatrixAt(B.inst, _m);
+          this.barrelMesh.setColorAt(B.inst, _c.setRGB(1, 1, 1).lerp(BARREL_HOT, k));
+          moved = true;
+          // Sparks spit from the lid, more as the fuse runs down.
+          if (fx && Math.random() < s.dt * (50 + 70 * k)) {
+            fx.spray(B.x + 10.5, B.z + 6.5, 0.86, 2, SPARK, { speed: 1.6, up: 3.2, life: 0.45, size: 0.08, grav: 7, hot: 1 });
+          }
+        } else if (B.lit) {
+          B.lit = false;
+          B.glow.visible = false;
+          _q.setFromAxisAngle(_up, B.ry);
+          _p.set(B.x, 0, B.z);
+          _s.set(1, 1, 1);
+          _m.compose(_p, _q, _s);
+          this.barrelMesh.setMatrixAt(B.inst, _m);
+          this.barrelMesh.setColorAt(B.inst, _c.setRGB(1, 1, 1));
+          moved = true;
+        }
+      }
+      if (moved) {
+        this.barrelMesh.instanceMatrix.needsUpdate = true;
+        if (this.barrelMesh.instanceColor) this.barrelMesh.instanceColor.needsUpdate = true;
+      }
+    }
+    if (this.screenMesh) {
+      const attract = !SKILLS[game.skill]?.autoMap;
+      for (const C of this.consoles) {
+        const st = blocks[C.i].state || 'idle';
+        C.state = st;
+        C.surge = Math.max(0, C.surge - s.dt / 0.9);
+        let gain = 1;
+        if (st === 'idle' && attract) {
+          // Waiting to be used: a slow swell (0.6 Hz), or a steady brighter glow.
+          gain = s.rm ? 1.5 : 0.85 + 0.95 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2 * 0.6));
+        }
+        _c.copy(SCREEN[st] ?? SCREEN.idle).multiplyScalar(gain);
+        if (C.surge > 0) _c.lerp(SCREEN.surge, C.surge * C.surge);
+        this.screenMesh.setColorAt(C.inst, _c);
+        if (st === 'broken') _c.setRGB(0, 0, 0);
+        else _c.multiplyScalar(st === 'idle' && attract ? 0.5 : 0.3);
+        this.consoleGlow.setColorAt(C.inst, _c);
+        // A wrecked console sputters now and then.
+        if (st === 'broken' && fx) {
+          const x = C.x + 10.5;
+          const y = C.z + 6.5 + 0.1;
+          if (Math.random() < s.dt * 0.8) fx.spray(x, y, 0.75, 3, EMBER, { speed: 1.4, up: 2.2, life: 0.5, size: 0.07, grav: 8, hot: 1 });
+          if (Math.random() < s.dt * 1.2) fx.puff(x, y, 0.8, 1, { color: WISP, size: 0.35, life: 1.4, a: 0.35, spread: 0.1, rise: 0.6 });
+        }
+      }
+      this.screenMesh.instanceColor.needsUpdate = true;
+      this.consoleGlow.instanceColor.needsUpdate = true;
+    }
+  }
+
+  // Hide a barrel that blew up and leave its burn mark (block index in geo.blocks).
+  blowBarrel(i) {
+    const B = this.barrels?.find((x) => x.i === i);
+    if (!B || B.gone) return;
+    B.gone = true;
+    B.lit = false;
+    B.glow.visible = false;
+    B.burn.visible = true;
+    this.barrelMesh.setMatrixAt(B.inst, ZERO);
+    this.barrelMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // An uplink: the console's screen surges, then settles on its new color.
+  surge(i) {
+    const C = this.consoles?.find((x) => x.i === i);
+    if (C) C.surge = 1;
   }
 
   // Where to put collapse sparks for a lock that just opened (world coords), or null.

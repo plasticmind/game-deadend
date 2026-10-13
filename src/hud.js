@@ -65,8 +65,22 @@ export function createHud(root, { onButton = () => {} } = {}) {
 
   const roomLine = el('div', 'hud-room');
   const status = el('div', 'hud-status');
+
+  // The ION-SHIV's heat: the bar fills as you fire and empties as it cools. At full heat
+  // the label reads OVERHEATED until the gun is ready again.
+  const heat = el('div', 'hud-heat');
+  const heatLabel = el('span', 'hud-heat-label', 'ION-SHIV');
+  const heatTrack = el('div', 'hud-heat-track');
+  const heatFill = el('div', 'hud-heat-fill');
+  heatTrack.append(heatFill);
+  heatTrack.setAttribute('role', 'meter');
+  heatTrack.setAttribute('aria-label', 'ION-SHIV heat');
+  heatTrack.setAttribute('aria-valuemin', '0');
+  heatTrack.setAttribute('aria-valuemax', '100');
+  heat.append(heatLabel, heatTrack);
+
   const topLeft = el('div', 'hud-topleft');
-  topLeft.append(panel, roomLine, status);
+  topLeft.append(panel, roomLine, heat, status);
 
   // ---- buttons for mouse and touch players (keyboard and pads use Esc/P/M/Start/Back)
   const buttons = el('div', 'hud-buttons');
@@ -113,7 +127,7 @@ export function createHud(root, { onButton = () => {} } = {}) {
   root.append(topLeft, buttons, boss, center, warning);
 
   // ---- state
-  const last = { score: -1, digits: 0, lives: -1, keys: '', room: '', status: '', banner: null, boss: '' };
+  const last = { score: -1, digits: 0, lives: -1, keys: '', room: '', status: '', banner: null, boss: '', heat: -1, hot: null };
   const queue = [];
   let momentT = 0;
   let warnSerial = -1; // room serial the warning belongs to
@@ -264,6 +278,8 @@ export function createHud(root, { onButton = () => {} } = {}) {
       last.status = '';
       last.banner = null;
       last.boss = '';
+      last.heat = -1;
+      last.hot = null;
       boss.hidden = true;
       queue.length = 0;
       momentT = 0;
@@ -292,6 +308,21 @@ export function createHud(root, { onButton = () => {} } = {}) {
         last.keys = keySig;
         setKeys(game.keys);
       }
+      // Heat, in steps of 2% so the bar isn't restyled every frame.
+      const gun = game.player;
+      const pct = Math.round(((gun && gun.heat) || 0) * 50) * 2;
+      if (pct !== last.heat) {
+        last.heat = pct;
+        heatFill.style.width = `${pct}%`;
+        heatTrack.setAttribute('aria-valuenow', String(pct));
+      }
+      const hot = !!(gun && gun.overheatT > 0);
+      if (hot !== last.hot) {
+        last.hot = hot;
+        heat.classList.toggle('is-hot', hot);
+        heatLabel.textContent = hot ? 'OVERHEATED' : 'ION-SHIV';
+      }
+
       const room = game.room;
       const roomSig = room ? `${room.id}:${room.zone}` : '';
       if (roomSig !== last.room && room) {

@@ -23,3 +23,49 @@ export function getRoom(id) {
   }
   return room;
 }
+
+// Map sections. Every room belongs to the console room nearest it by door hops inside
+// its own sector (on a tie, the first one found from the lowest room id). A console room
+// is any room with at least one terminal (`T`). Using a console maps its whole section.
+// A room with no console room in reach is a section of its own.
+let owners = null;
+const members = new Map();
+
+function buildSections() {
+  owners = new Array(ROOMS.length).fill(-1);
+  const hops = new Array(ROOMS.length).fill(Infinity);
+  const queue = [];
+  for (const m of ROOMS) {
+    if (!getRoom(m.id).blocks.some((b) => b.kind === 'terminal')) continue;
+    owners[m.id] = m.id;
+    hops[m.id] = 0;
+    queue.push(m.id);
+  }
+  for (let qi = 0; qi < queue.length; qi++) {
+    const id = queue[qi];
+    for (const to of Object.values(ROOMS[id].exits)) {
+      if (to === undefined || to === null || ROOMS[to].zone !== ROOMS[id].zone || hops[to] <= hops[id] + 1) continue;
+      hops[to] = hops[id] + 1;
+      owners[to] = owners[id];
+      queue.push(to);
+    }
+  }
+  for (const m of ROOMS) {
+    if (owners[m.id] < 0) owners[m.id] = m.id;
+    const list = members.get(owners[m.id]) ?? [];
+    list.push(m.id);
+    members.set(owners[m.id], list);
+  }
+}
+
+// The console room whose section holds room `id`.
+export function sectionOf(id) {
+  if (!owners) buildSections();
+  return owners[id];
+}
+
+// Every room in the section that console room `owner` maps.
+export function sectionRooms(owner) {
+  if (!owners) buildSections();
+  return members.get(owner) ?? [owner];
+}

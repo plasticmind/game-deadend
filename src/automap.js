@@ -1,8 +1,10 @@
-// The map screen's drawing: every visited room at its gx, gy cell from map.js (the layout
-// of the original fan map, 49 by 12 cells), the doors between visited rooms, locked doors
-// as colored dashes (solid once opened), stubs for doors seen but not yet walked through,
-// items seen but not taken, and the current room with a slow pulse. Unvisited rooms stay
-// hidden. Canvas 2D; called every frame while the map is open.
+// The map screen's drawing: every mapped room at its gx, gy cell from map.js (the layout
+// of the original fan map, 49 by 12 cells), the doors between mapped rooms, locked doors
+// as colored dashes (solid once opened), stubs for doors that lead off the map, items
+// seen but not taken, and the current room with a slow pulse. A room is mapped when you
+// walk in on a skill with `autoMap`, or when a console maps its section; a mapped room you
+// haven't been in yet is drawn dimmer and shows no items. Unmapped rooms stay hidden.
+// Canvas 2D; called every frame while the map is open.
 
 import { ROOMS, ZONES, KEY_COLORS, LAIR_ROOM, lockOn } from './map.js';
 
@@ -15,7 +17,9 @@ const OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
 
 export function mapStats(game) {
   const visited = Object.keys(game.visited || {}).length;
-  return { visited, total: ROOMS.length };
+  const mapped = Object.keys(game.mapped || {}).length;
+  const here = game.room ? game.room.id : -1;
+  return { visited, mapped, total: ROOMS.length, hereMapped: here >= 0 && !!(game.mapped || {})[here] };
 }
 
 const WHOLE = { gx0: 0, gy0: 0, cols: MAP_COLS, rows: MAP_ROWS };
@@ -29,7 +33,7 @@ export function mapWindow(game, whole = false) {
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const id of Object.keys(game.visited || {})) {
+  for (const id of Object.keys(game.mapped || {})) {
     const r = ROOMS[id];
     x0 = Math.min(x0, r.gx);
     y0 = Math.min(y0, r.gy);
@@ -126,8 +130,9 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
   const s = cell;
   const box = s * 0.64;
   const gap = (s - box) / 2;
-  const visited = game.visited || {};
-  const here = game.room ? game.room.id : -1;
+  const shown = game.mapped || {};
+  const been = game.visited || {};
+  const here = game.room && shown[game.room.id] ? game.room.id : -1;
   const cx = (r) => (r.gx + 0.5) * s;
   const cy = (r) => (r.gy + 0.5) * s;
   const sidePoint = (r, side) => [cx(r) + DIR[side][0] * (box / 2), cy(r) + DIR[side][1] * (box / 2)];
@@ -141,7 +146,7 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
   // ---- doors
   ctx.lineCap = 'round';
   for (const a of ROOMS) {
-    if (!visited[a.id]) continue;
+    if (!shown[a.id]) continue;
     for (const [side, bId] of Object.entries(a.exits)) {
       const b = ROOMS[bId];
       const lock = lockOn(a.id, side);
@@ -152,7 +157,7 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
       ctx.setLineDash(lock && !opened ? [Math.max(2, s * 0.12), Math.max(2, s * 0.1)] : []);
       const [x1, y1] = sidePoint(a, side);
       ctx.beginPath();
-      if (visited[bId]) {
+      if (shown[bId]) {
         if (bId < a.id) continue; // each pair once
         const [x2, y2] = sidePoint(b, OPP[side]);
         ctx.moveTo(x1, y1);
@@ -160,7 +165,7 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
         ctx.lineTo(x2 + DIR[OPP[side]][0] * gap, y2 + DIR[OPP[side]][1] * gap);
         ctx.lineTo(x2, y2);
       } else {
-        // A door seen from here but not yet walked through.
+        // A door that leads off the map.
         const len = gap + s * 0.16;
         ctx.moveTo(x1, y1);
         ctx.lineTo(x1 + DIR[side][0] * len, y1 + DIR[side][1] * len);
@@ -174,13 +179,14 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
   const pulse = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.55);
   const fontPx = Math.max(8, Math.round(box * 0.36));
   for (const r of ROOMS) {
-    if (!visited[r.id]) continue;
+    if (!shown[r.id]) continue;
     const zone = ZONES[r.zone];
     const x = cx(r) - box / 2;
     const y = cy(r) - box / 2;
     const isHere = r.id === here;
+    const seen = !!been[r.id];
     roundRect(ctx, x, y, box, box, Math.max(2, s * 0.08));
-    ctx.fillStyle = '#121620';
+    ctx.fillStyle = seen ? '#121620' : '#0b0d13';
     ctx.fill();
     if (isHere) {
       ctx.globalAlpha = 0.35 + 0.4 * pulse;
@@ -190,7 +196,10 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
     }
     ctx.lineWidth = isHere ? Math.max(2, s * 0.1) : Math.max(1, s * 0.06);
     ctx.strokeStyle = isHere ? '#fff4d6' : zone.color;
+    // Mapped but not visited yet: a dashed outline.
+    if (!seen && !isHere) ctx.setLineDash([Math.max(2, s * 0.1), Math.max(2, s * 0.07)]);
     ctx.stroke();
+    ctx.setLineDash([]);
 
     if (r.pod) {
       // Yellow and black hazard tick for pod rooms.
@@ -212,9 +221,9 @@ export function drawAutomap(canvas, game, { t = 0, reduced = false, cell = 16, w
       ctx.fillText(String(r.id), cx(r), cy(r) - (r.item ? box * 0.14 : 0));
     }
 
-    // Items seen but not taken, and keyholes.
+    // Items seen but not taken, and keyholes, in rooms you have been in.
     const it = r.item;
-    if (!it) continue;
+    if (!it || !seen) continue;
     const isz = Math.max(6, box * 0.42);
     const ix = cx(r) - isz / 2;
     const iy = box >= 14 ? cy(r) + box * 0.02 : cy(r) - isz / 2;

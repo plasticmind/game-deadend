@@ -9,15 +9,20 @@
 // map.js (one '*' for a key, mystery, or life; one 'H' for a keyhole; 'S' in room 0;
 // 'P' gates only in pod rooms); every door, the item, the keyhole, and every spawn are
 // reachable by the player's body from every door; each door's landing zone is safe;
-// there are enough spawn points far from each door; and each pod room's gates guard
-// its bottle. Notes (not failures) flag corner-only wall contacts and items too far
+// there are enough spawn points far from each door; each pod room's gates guard its
+// bottle; and in a console room (any room with a 'T'), at least one console can be used
+// from every door, since using it maps the room's whole section of the lair. Notes (not failures) flag corner-only wall contacts and items too far
 // from a door to reach before the Shadow comes.
 
 import { ROOMS, LOCKS, START_ROOM, LAIR_ROOM, POD_ROOMS, lockOn } from '../src/map.js';
 import { ROOM_DEFS } from '../src/rooms/index.js';
-import { parseRoom, placeholderDef, wallDistance, blockAt, CELL, WALL_HALF, DOOR, W, H } from '../src/room.js';
+import { parseRoom, placeholderDef, wallDistance, blockAt, CELL, WALL_HALF, BLOCK_HALF, DOOR, W, H } from '../src/room.js';
 import { entryPoint } from '../src/sim/game.js';
-import { PLAYER, FOES, SHADOW } from '../src/sim/tuning.js';
+import * as TUNING from '../src/sim/tuning.js';
+
+const { PLAYER, FOES, SHADOW } = TUNING;
+// How close Shamus's body must come to a console's box to use it.
+const CONSOLE_REACH = TUNING.CONSOLE?.reach ?? 0.15;
 
 const args = process.argv.slice(2);
 const show = args.includes('--show');
@@ -119,6 +124,22 @@ function floodDist(safe, x, y) {
   return dist;
 }
 
+// Safe points where Shamus's body is within CONSOLE_REACH of a console's box.
+function useSpots(safe, t) {
+  const out = [];
+  const near = BLOCK_HALF + PLAYER.radius + CONSOLE_REACH;
+  for (let j = Math.max(0, Math.floor((t.y - near) / STEP)); j <= Math.min(NY - 1, Math.ceil((t.y + near) / STEP)); j++) {
+    for (let i = Math.max(0, Math.floor((t.x - near) / STEP)); i <= Math.min(NX - 1, Math.ceil((t.x + near) / STEP)); i++) {
+      const k = j * NX + i;
+      if (!safe[k]) continue;
+      const dx = Math.max(0, Math.abs(i * STEP - t.x) - BLOCK_HALF);
+      const dy = Math.max(0, Math.abs(j * STEP - t.y) - BLOCK_HALF);
+      if (Math.hypot(dx, dy) - PLAYER.radius <= CONSOLE_REACH + 1e-9) out.push(k);
+    }
+  }
+  return out;
+}
+
 const reached = (seen, safe, x, y) => {
   const k = nearestSafe(safe, x, y);
   return k >= 0 && seen[k] === 1;
@@ -170,12 +191,30 @@ function checkRoom(id) {
 
   const starts = doors.length ? doors.map((s) => [`door ${s}`, entryPoint(room, s)]) : [['start', room.start]];
   if (room.start && doors.length) starts.push(['start', room.start]);
+  const floods = [];
   for (const [fromName, from] of starts) {
     const seen = flood(safe, from.x, from.y);
+    floods.push(seen);
     for (const [name, p] of targets) {
       if (!reached(seen, safe, p.x, p.y)) fail(id, `${name} is unreachable from ${fromName}`);
     }
     if (show && fromName === starts[0][0]) printReach(room, seen);
+  }
+
+  // Consoles: Shamus maps a section of the lair by walking up to a terminal in its
+  // console room. In a room with terminals, at least one needs a use spot (a safe point
+  // where the gap between his body and the console's box is at most CONSOLE_REACH) that
+  // he can reach from every door.
+  const consoles = room.blocks.filter((b) => b.kind === 'terminal');
+  if (consoles.length) {
+    const usable = consoles.filter((t) => {
+      const spots = useSpots(safe, t);
+      return floods.every((seen) => spots.some((k) => seen[k]));
+    });
+    if (!usable.length) {
+      const at = consoles.map((t) => `${t.c},${t.r}`).join(' ');
+      fail(id, `no console can be used from every door (consoles at ${at}): give one open floor beside it`);
+    }
   }
 
   // Walls that meet only at a corner don't join: the gap between their posts is a

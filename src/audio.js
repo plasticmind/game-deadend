@@ -1,12 +1,12 @@
 // Dead End's sound. One-shot effects come from sim events and play recorded samples
-// (audio/sfx/, all CC0) where a recording beats the synth; everything else, and every
-// sample that hasn't loaded yet or failed to load, is synthesized with WebAudio. Loops come
-// from state: the Shadow's low pulsing warning, his drone while he is in the room, the pod
-// gate hum, and footsteps. Music is jazz streamed from audio/music/ through two <audio>
-// elements that crossfade: a title track, a track per sector that rotates as you play,
-// a sneaking track while the Shadow is on your trail, and a tenser loop in his lair. If a
-// track can't play, a procedural noir loop (a walking bass under brushed hi-hats) takes
-// over. audio/CREDITS.md lists every file and its license.
+// (audio/sfx/) where a recording beats the synth; everything else, and every sample that
+// hasn't loaded yet or failed to load, is synthesized with WebAudio. Loops come from state:
+// the Shadow's low pulsing warning, his drone while he is in the room, the pod gate hum,
+// the ION-SHIV's whine as it heats up, and footsteps. Music is jazz streamed from
+// audio/music/: a playful title track, a track per sector, a sneaking track while the
+// Shadow is on your trail, and a tense loop in his lair. Tracks hand over without a gap.
+// If a track can't play, a procedural noir loop (a walking bass under brushed hi-hats)
+// takes over. audio/CREDITS.md lists every file and its license.
 //
 //   const audio = createAudio(settings);
 //   audio.unlock();                 // on the first key, tap, or button (browser rule)
@@ -21,9 +21,10 @@ const MASTER = 0.42; // modest: these play on family laptops and TVs
 const SFX_LEVEL = 0.9;
 const MUSIC_LEVEL = 0.5;
 const TRACK_LEVEL = 0.67; // the music files sit at -18 LUFS; this plays them 2 dB above the synth loop
-const DUCK = 0.3; // music level under the Shadow's warning and while he is in the room
-const DUCK_LAIR = 0.6; // he is always there in the lair, so its track only dips
-const XFADE = 2.5; // seconds a crossfade between tracks takes
+const DUCK_WARN = 0.3; // music level under the Shadow's warning pulse
+const DUCK_NEAR = 0.65; // while he's in the room (and in his lair), so his music still lands
+const ATTACK = 0.12; // seconds a new track takes to come in
+const RELEASE = 1.2; // seconds the old track takes to fade out
 const TRAIL_HOLD = 15; // seconds of play the Shadow's music lasts after he's gone
 const TEMPO = [84, 96, 106, 118, 132]; // synth music: title, then by sector
 
@@ -47,8 +48,10 @@ export const SOURCES = {
   digital: kenney('Digital Audio', 'digital-audio'),
   impact: kenney('Impact Sounds', 'impact-sounds'),
   ui: kenney('Interface Sounds', 'interface-sounds'),
+  uiAudio: kenney('UI Audio', 'ui-audio'),
   rpg: kenney('RPG Audio', 'rpg-audio'),
   jingles: kenney('Music Jingles', 'music-jingles'),
+  steam: { pack: 'Steam release sounds', author: 'bart', license: CC0, url: 'https://opengameart.org/content/steam-release-sounds' },
 };
 
 // Each sample: its files in audio/sfx/ (several means a random pick each time), the pack
@@ -61,10 +64,11 @@ export const SAMPLES = {
   bolt: { files: ['bolt-1', 'bolt-2'], from: 'scifi', orig: 'laserRetro_002, laserRetro_003', use: 'A robot fires a bolt (boltFire)', vol: 0.018, vary: 0.05 },
   boltWarden: { files: ['bolt-warden'], from: 'scifi', orig: 'laserLarge_002', use: 'A Warden fires (boltFire)', vol: 0.019, vary: 0.04 },
   clank: { files: ['clank-1', 'clank-2', 'clank-3'], from: 'impact', orig: 'impactMetal_heavy_000, _002, _004', use: 'A shot clangs off armor (foeHit)', vol: 0.184, vary: 0.06 },
-  clankHeavy: { files: ['clank-heavy-1', 'clank-heavy-2'], from: 'impact', orig: 'impactPlate_heavy_001, _003', use: 'Armor down to its last hit (foeHit, hp 1); armored wrecks (foeDie)', vol: 0.204, vary: 0.05 },
+  clankHeavy: { files: ['clank-heavy-1', 'clank-heavy-2'], from: 'impact', orig: 'impactPlate_heavy_001, _003', use: 'Armor down to its last hit (foeHit, hp 1); armored wrecks and barrel debris', vol: 0.204, vary: 0.05 },
   boom: { files: ['boom-1', 'boom-2', 'boom-3'], from: 'scifi', orig: 'explosionCrunch_000, _001, _003', use: 'A robot blows up (foeDie)', vol: 0.32, vary: 0.05 },
-  zap: { files: ['zap'], from: 'digital', orig: 'zap2', use: 'Shamus touches an electric wall or a lit pod gate (playerDie)', vol: 0.075 },
-  powerDown: { files: ['power-down'], from: 'digital', orig: 'lowDown', use: 'Shamus is shot or caught (playerDie)', vol: 0.129 },
+  barrel: { files: ['barrel-1', 'barrel-2'], from: 'scifi', orig: 'explosionCrunch_004 and _002, each over lowFrequency_explosion_001', use: 'A red barrel explodes (barrelBoom)', vol: 0.5, vary: 0.04 },
+  shock: { files: ['shock'], local: 'shock', from: 'digital', orig: 'zap2 over zap1', use: 'The arc when Shamus touches an electric wall or a lit pod gate (playerDie)', vol: 0.5, localVol: 0.5, localFrom: '“High Voltage Power” by virtual_vibes (Pixabay), kept out of the public repo' },
+  powerDown: { files: ['power-down'], from: 'digital', orig: 'lowDown', use: 'Shamus is shot, caught, or blown up (playerDie)', vol: 0.129 },
   keys: { files: ['keys'], from: 'rpg', orig: 'handleCoins2', use: 'Picking up a key (pickup)', vol: 0.33 },
   bottle: { files: ['bottle'], from: 'ui', orig: 'glass_001', use: 'Picking up a bottle (pickup)', vol: 0.17 },
   question: { files: ['question'], from: 'ui', orig: 'question_002', use: 'Picking up a mystery (pickup)', vol: 0.086 },
@@ -76,6 +80,12 @@ export const SAMPLES = {
   unlock: { files: ['unlock'], from: 'rpg', orig: 'metalLatch', use: 'A key turns in its keyhole (keyUse)', vol: 0.186 },
   door: { files: ['door'], from: 'scifi', orig: 'doorOpen_001', use: 'A locked door slides open (doorOpen)', vol: 0.107 },
   locked: { files: ['locked'], from: 'ui', orig: 'error_007', use: 'A keyhole without its key (doorLocked)', vol: 0.187 },
+  consoleFresh: { files: ['console-fresh'], from: 'digital', orig: 'pepSound3, after a moment of Sci-Fi Sounds computerNoise_002', use: 'A console maps new rooms (consoleUse, fresh)', vol: 0.076 },
+  consoleBeep: { files: ['console-beep'], from: 'ui', orig: 'toggle_001', use: 'A console with nothing new to map (consoleUse)', vol: 0.05 },
+  consoleBreak: { files: ['console-break'], from: 'impact', orig: 'impactGlass_heavy_000, with a crackle of Digital Audio zap1', use: 'A console is shot or blasted (consoleBreak)', vol: 0.18 },
+  overheat: { files: ['overheat'], from: 'steam', orig: 'steam hisses, marker 1', use: 'The ION-SHIV overheats (overheat)', vol: 0.17 },
+  cooled: { files: ['cooled'], from: 'rpg', orig: 'metalClick, then Interface Sounds toggle_002', use: 'The ION-SHIV is ready again (cooled)', vol: 0.164 },
+  dryFire: { files: ['dry-fire'], from: 'uiAudio', orig: 'click2', use: 'Fire pressed while it is overheated (dryFire)', vol: 0.038, vary: 0.04 },
   shadowSwell: { files: ['shadow-swell'], from: 'impact', orig: 'impactBell_heavy_001, reversed', use: 'The Shadow comes through the wall (shadowEnter)', vol: 0.314 },
   stun: { files: ['stun'], from: 'digital', orig: 'phaserDown1', use: 'The Shadow is stunned (shadowStun)', vol: 0.093 },
   shadowHurt: { files: ['shadow-hurt'], from: 'digital', orig: 'zapTwoTone', use: 'A hit on the Shadow in his lair (shadowHurt)', vol: 0.045 },
@@ -87,27 +97,36 @@ export const SAMPLES = {
   uiBack: { files: ['ui-back'], from: 'ui', orig: 'back_003', use: 'Menu back', vol: 0.088 },
 };
 
-// Music in audio/music/. `loop` tracks repeat until the scene changes; sector tracks play
-// `repeat` times, then the next sector's track takes over, so a long stay doesn't wear one out.
-// Every track is CC0 except `creeping`, which is CC BY 4.0 and credited in the game.
+// Music in audio/music/. Every track is CC0 except `title`, which is CC BY 4.0 and credited
+// in the game. `tail` is how many seconds before its end a track hands over (while its last
+// notes ring), or `out` is the moment it hands over; `head` is where it starts when it comes
+// in under another track. `loop` tracks hand over to themselves. The lair is a decoded
+// buffer that loops to the sample, `loopLength` seconds long.
 export const TRACKS = {
-  title: { file: 'title', title: 'Moil', author: 'Ruskerdax', license: CC0, url: 'https://opengameart.org/content/moil', use: 'Title screen, menus, and end screens', loop: true },
-  'sector-1': { file: 'sector-1', title: 'Investigation', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/investigation-0', use: 'Black Sector', repeat: 2 },
-  'sector-2': { file: 'sector-2', title: 'jazz (saxaphone)', author: 'Alex McCulloch (Pro Sensory)', license: CC0, url: 'https://opengameart.org/content/jazz-saxaphone', use: 'Blue Sector', repeat: 1 },
-  'sector-3': { file: 'sector-3', title: 'Jazz', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/jazz-2', use: 'Green Sector', repeat: 1 },
-  'sector-4': { file: 'sector-4', title: 'Sneaking into the Robot Factory', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/sneaky-music-pack', use: 'Red Sector', repeat: 2 },
-  creeping: {
-    file: 'creeping', title: 'Midnight Creeping in the Alchemy Lab', author: 'glitchart, remixing Jonathan Shaw (jshaw.co.uk) and tcarisland',
+  title: {
+    file: 'title', title: 'Midnight Creeping in the Alchemy Lab', author: 'glitchart, remixing Jonathan Shaw (jshaw.co.uk) and tcarisland',
     license: 'CC BY 4.0', url: 'https://opengameart.org/content/midnight-creeping-in-the-alchemy-lab-jonathan-shaw-tcarisland',
-    use: 'The Shadow on your trail: from when he shows up until 15 seconds after he is gone', loop: true,
+    use: 'Title screen, menus, and end screens', loop: true, head: 6.6, tail: 9,
   },
-  lair: { file: 'lair', title: 'Spy Loop', author: 'wipics', license: CC0, url: 'https://opengameart.org/content/spy-loop', use: "The Shadow's lair (room 127)", loop: true },
+  'sector-1': { file: 'sector-1', title: 'Investigation', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/investigation-0', use: 'Black Sector', head: 9.35, tail: 0.12 },
+  'sector-2': { file: 'sector-2', title: 'jazz (saxaphone)', author: 'Alex McCulloch (Pro Sensory)', license: CC0, url: 'https://opengameart.org/content/jazz-saxaphone', use: 'Blue Sector', tail: 3 },
+  'sector-3': { file: 'sector-3', title: 'Jazz', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/jazz-2', use: 'Green Sector', tail: 0.25 },
+  'sector-4': { file: 'sector-4', title: 'Sneaking into the Robot Factory', author: 'Umplix', license: CC0, url: 'https://opengameart.org/content/sneaky-music-pack', use: 'Red Sector', head: 3.1, tail: 0.35 },
+  trail: {
+    file: 'trail', title: 'Moil', author: 'Ruskerdax', license: CC0, url: 'https://opengameart.org/content/moil',
+    use: 'The Shadow on your trail: from when he shows up until 15 seconds after he is gone (its first 86 seconds, looped)', loop: true, out: 86, fade: 1.5,
+  },
+  lair: { file: 'lair', title: 'Spy Loop', author: 'wipics', license: CC0, url: 'https://opengameart.org/content/spy-loop', use: "The Shadow's lair (room 127)", loop: true, buffer: true, loopLength: 25.26316 },
 };
 const ROTATION = ['sector-1', 'sector-2', 'sector-3', 'sector-4'];
+const SECTOR = new Set(ROTATION);
 
 // Relative to this module, because the game is served from /game-deadend/, not the root.
 export const sfxUrl = (file) => new URL(`../audio/sfx/${file}.mp3`, import.meta.url).href;
 export const musicUrl = (file) => new URL(`../audio/music/${file}.mp3`, import.meta.url).href;
+// Sounds the arcade may use but not redistribute live in audio/local/, which git ignores. A
+// sample with a `local` file tries it first and falls back to its own file in audio/sfx/.
+export const localUrl = (file) => new URL(`../audio/local/${file}.mp3`, import.meta.url).href;
 
 // ------------------------------------------------------------------ the engine
 
@@ -116,6 +135,8 @@ export function createAudio({ sound = true, music = true, context = null } = {})
   let master = null;
   let sfx = null;
   let mus = null;
+  let musHit = null; // a short duck under the electrocution
+  let meterNode = null;
   let noiseBuf = null;
   let soundOn = sound;
   let musicOn = music;
@@ -137,11 +158,18 @@ export function createAudio({ sound = true, music = true, context = null } = {})
   const missing = new Set();
   let decoding = false;
   const allFiles = [...new Set(Object.values(SAMPLES).flatMap((s) => s.files))];
+  const localFiles = new Set(Object.values(SAMPLES).map((s) => s.local).filter(Boolean));
+  const fromLocal = new Set(); // files that loaded from audio/local/
   if (typeof fetch === 'function') {
     for (const f of allFiles) {
-      raw[f] = fetch(sfxUrl(f))
-        .then((r) => (r.ok ? r.arrayBuffer() : null))
-        .catch(() => null);
+      const shipped = () => fetch(sfxUrl(f)).then((r) => (r.ok ? r.arrayBuffer() : null));
+      const local = () =>
+        fetch(localUrl(f)).then((r) => {
+          if (!r.ok) return shipped();
+          fromLocal.add(f);
+          return r.arrayBuffer();
+        }, shipped);
+      raw[f] = (localFiles.has(f) ? local() : shipped()).catch(() => null);
     }
   }
 
@@ -167,17 +195,20 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       sfx.connect(master);
       mus = ctx.createGain();
       mus.gain.value = musicOn ? MUSIC_LEVEL : 0;
-      mus.connect(master);
+      musHit = ctx.createGain();
+      mus.connect(musHit).connect(master);
       noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       ms.next = ctx.currentTime + 0.1;
       decodeAll();
-      makeDecks();
+      makeVoices();
     }
     if (ctx.state === 'suspended' && !context) ctx.resume().catch(() => {});
-    // iOS lets a media element start only from a tap or key: start (or retry) it here.
-    if (decks.length && musicOn && !paused && (!cur || cur.blocked)) startDeck();
+    // iOS lets a media element start only from a tap or key: bless every voice here, and
+    // start (or retry) the music while this gesture lasts.
+    blessVoices();
+    if (musicOn && !paused) kickMusic();
   }
 
   function decodeAll() {
@@ -197,7 +228,6 @@ export function createAudio({ sound = true, music = true, context = null } = {})
         .catch(() => missing.add(f));
     }
   }
-
   // Old Safari only has the callback form of decodeAudioData; newer browsers return a promise.
   function decode(ab) {
     return new Promise((resolve) => {
@@ -249,7 +279,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       const spread = def.vary || 0;
       src.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * spread);
       const g = ctx.createGain();
-      g.gain.value = def.vol * vol;
+      g.gain.value = (fromLocal.has(file) && def.localVol ? def.localVol : def.vol) * vol;
       src.connect(g).connect(sfx);
       src.start(ctx.currentTime + at, off);
       return true;
@@ -312,8 +342,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       const out = ctx.createGain();
       out.gain.value = 0;
       out.connect(sfx);
-      build(out);
-      loops[name] = { out, level: 0 };
+      loops[name] = { out, level: 0, ...build(out) };
     }
     return loops[name];
   }
@@ -392,185 +421,451 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     o2.start();
   };
 
+  // The ION-SHIV heating up: a thin whine that climbs with the heat.
+  const buildHeat = (out) => {
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 700;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 2400;
+    f.Q.value = 2;
+    const wob = ctx.createOscillator();
+    wob.frequency.value = 9;
+    const depth = ctx.createGain();
+    depth.gain.value = 12;
+    wob.connect(depth).connect(osc.frequency);
+    osc.connect(f).connect(out);
+    osc.start();
+    wob.start();
+    return { osc };
+  };
+
   function loopsOff() {
     for (const name of Object.keys(loops)) setLoop(name, 0);
   }
 
   // ------------------------------------------------------------------ music tracks
 
-  // Two <audio> elements ("decks") stream tracks into the music bus through Web Audio, so
-  // the music setting, pausing, and ducking all work on one gain node. A change of track
-  // is a crossfade: the new track starts on the free deck and fades in once it is
-  // actually playing, while the old one fades out, so the music never drops out between
-  // scenes. Each track remembers where it stopped, so a sector's track picks up where it
-  // left off after the Shadow's music.
-  const decks = [];
-  let cur = null; // the deck holding the track the game wants
-  const failed = {};
-  const resumeAt = {}; // track -> seconds into it where it last stopped
+  // Every track is fetched once into memory (the title track at once, the rest right after
+  // unlock) and played by "voices": two <audio> elements per track that share the file, so
+  // a track can hand over to itself at its loop point. The lair's loop is a decoded buffer
+  // instead, looped to the sample. A change of track starts the new one at once (ATTACK),
+  // and the old one fades out (RELEASE) only once the new one is actually playing, so the
+  // music never fades into nothing. A track hands over a moment before it ends, while its
+  // last notes still ring: to its own second voice if it loops, or to the next track in
+  // the sector's rotation. Each sector's rotation is its own track, then the tracks of the
+  // sectors before it, so a sector's track is new when you get there.
+  const voices = [];
+  const voicesOf = {}; // track -> its voices
+  const urls = {}; // track -> object URL of the file in memory, 'buffer' for the lair, false if it failed
+  const lairData = { raw: null, buf: null, start: 0, end: 0, decoding: false };
+  let lead = null; // the voice for the track the game wants
   let lastWant = 'title';
   let quietSince = 0;
-  const rot = { zone: 0, idx: 0, plays: 0 };
+  let silentSince = 0;
+  const resumeAt = {}; // sector track -> seconds where it stopped, to pick up after the Shadow's music
+  const rot = { zone: 0, list: [], idx: 0, fresh: false };
   const trail = { game: null, until: -1 }; // the Shadow's music plays until game.t passes `until`
 
-  function makeDecks() {
-    if (decks.length || context || typeof Audio === 'undefined' || typeof ctx.createMediaElementSource !== 'function') return;
-    try {
-      for (let i = 0; i < 2; i++) {
-        const el = new Audio();
-        el.preload = 'auto';
-        const d = { el, gain: ctx.createGain(), name: null, state: 'idle', pending: false, blocked: false, stopAt: 0 };
-        d.gain.gain.value = 0;
-        ctx.createMediaElementSource(el).connect(d.gain).connect(mus);
-        el.addEventListener('playing', () => {
-          if (d !== cur) return;
-          d.state = 'playing';
-          fadeIn(d);
-        });
-        // A track coming back starts where it stopped.
-        el.addEventListener('loadedmetadata', () => {
-          const at = resumeAt[d.name];
-          if (at > 0 && at < (el.duration || 0) - 3) {
-            try {
-              el.currentTime = at;
-            } catch {
-              // Can't seek this stream: start from the top.
-            }
-          }
-        });
-        el.addEventListener('error', () => {
-          if (!d.name) return;
-          failed[d.name] = true;
-          d.state = 'failed';
-          // The synth loop takes over (synthMusic), so let the old track go.
-          if (d === cur) for (const o of decks) if (o !== d) fadeOut(o);
-        });
-        el.addEventListener('ended', () => onEnded(d));
-        decks.push(d);
+  function fetchTrack(name) {
+    if (name in urls || typeof fetch !== 'function' || context) return;
+    urls[name] = null;
+    const t = TRACKS[name];
+    fetch(musicUrl(t.file))
+      .then((r) => (r.ok ? (t.buffer ? r.arrayBuffer() : r.blob()) : null))
+      .then((data) => {
+        if (!data) {
+          urls[name] = false;
+        } else if (t.buffer) {
+          lairData.raw = data;
+          urls[name] = 'buffer';
+          decodeLair();
+        } else {
+          urls[name] = URL.createObjectURL(data);
+          for (const v of voicesOf[name] || []) setSource(v);
+        }
+      })
+      .catch(() => {
+        urls[name] = false;
+      });
+  }
+  // The title track loads with the page, so it's ready for the first key.
+  if (typeof URL !== 'undefined' && URL.createObjectURL) fetchTrack('title');
+
+  function decodeLair() {
+    if (!ctx || !lairData.raw || lairData.decoding) return;
+    lairData.decoding = true;
+    decode(lairData.raw).then((buf) => {
+      if (!buf) {
+        urls.lair = false;
+        return;
       }
-    } catch {
-      decks.length = 0;
+      const len = TRACKS.lair.loopLength;
+      // A decoder that ignores the MP3's gapless note keeps the encoder's 1105-sample delay.
+      lairData.start = buf.duration - len > 0.02 ? 1105 / 44100 : 0;
+      lairData.end = Math.min(buf.duration, lairData.start + len);
+      lairData.buf = buf;
+    });
+  }
+
+  function makeVoices() {
+    if (voices.length || context || typeof Audio === 'undefined' || typeof ctx.createMediaElementSource !== 'function') return;
+    if (typeof URL === 'undefined' || !URL.createObjectURL) return;
+    for (const name of Object.keys(TRACKS)) {
+      voicesOf[name] = [];
+      const t = TRACKS[name];
+      for (let i = 0; i < (t.buffer ? 1 : 2); i++) {
+        const v = { track: name, el: null, gain: ctx.createGain(), src: null, state: 'idle', at: 0, fadeEnd: 0, fadeLen: 0, handed: false, held: false, blessed: false, blocked: false, pending: false, attack: ATTACK, started: 0 };
+        v.gain.gain.value = 0;
+        if (!t.buffer) {
+          try {
+            v.el = new Audio();
+            v.el.preload = 'auto';
+            ctx.createMediaElementSource(v.el).connect(v.gain);
+          } catch {
+            continue;
+          }
+          v.el.addEventListener('playing', () => onPlaying(v));
+          v.el.addEventListener('ended', () => onEnded(v));
+          v.el.addEventListener('error', () => {
+            if (!v.el.getAttribute('src')) return;
+            urls[name] = false;
+            if (v.state !== 'idle') stopVoice(v);
+          });
+          setSource(v);
+        }
+        v.gain.connect(mus);
+        voicesOf[name].push(v);
+        voices.push(v);
+      }
     }
+    for (const name of Object.keys(TRACKS)) fetchTrack(name);
+    decodeLair();
   }
 
-  // Bring deck `d` up to full and fade every other deck out.
-  function fadeIn(d) {
-    d.stopAt = 0;
-    d.gain.gain.setTargetAtTime(TRACK_LEVEL, ctx.currentTime, XFADE / 4);
-    for (const o of decks) if (o !== d) fadeOut(o);
+  function setSource(v) {
+    const url = urls[v.track];
+    if (v.el && typeof url === 'string' && url !== 'buffer' && !v.el.getAttribute('src')) v.el.src = url;
   }
 
-  function fadeOut(d) {
-    if (d.stopAt || d.el.paused) return;
-    d.gain.gain.setTargetAtTime(0, ctx.currentTime, XFADE / 4);
-    d.stopAt = ctx.currentTime + XFADE;
-  }
-
-  // Pause deck `d` and remember where its track was.
-  function stop(d) {
-    if (d.name && !d.el.paused) resumeAt[d.name] = d.el.currentTime;
-    d.el.pause();
-    d.stopAt = 0;
-    d.gain.gain.cancelScheduledValues(ctx.currentTime);
-    d.gain.gain.setValueAtTime(0, ctx.currentTime);
-  }
-
-  function load(d, name) {
-    if (!d.el.paused) stop(d);
-    d.name = name;
-    d.stopAt = 0;
-    d.blocked = false;
-    d.gain.gain.cancelScheduledValues(ctx.currentTime);
-    d.gain.gain.setValueAtTime(0, ctx.currentTime);
-    if (failed[name]) {
-      d.state = 'failed';
-      return;
+  // A play() from a tap or key lets iOS play that element later without one.
+  function blessVoices() {
+    for (const v of voices) {
+      if (!v.el || v.blessed || v.state !== 'idle') continue;
+      v.blessed = true;
+      try {
+        const p = v.el.play();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+        v.el.pause();
+      } catch {
+        // Nothing to bless.
+      }
     }
-    d.state = 'loading';
-    d.el.loop = !!TRACKS[name].loop;
-    d.el.src = musicUrl(TRACKS[name].file);
+    for (const v of voices) v.blocked = false;
   }
 
-  // Make `name` the wanted track: reuse a deck that still holds it (even mid-fade-out),
-  // or load it on the free deck. Its 'playing' event starts the crossfade.
-  function switchTo(name) {
-    let d = decks.find((x) => x.name === name && x.state !== 'failed' && x.state !== 'ended');
-    if (d) {
-      cur = d;
-      if (d.state === 'playing' && !d.el.paused) fadeIn(d);
-    } else {
-      d = decks.find((x) => x !== cur) || decks[0];
-      load(d, name);
-      cur = d;
-      if (d.state === 'failed') for (const o of decks) if (o !== d) fadeOut(o);
-    }
-    if (musicOn && !paused) playDeck(d);
+  // A media voice can start once its file is in memory: it fades in only when it's
+  // actually playing, so asking early costs nothing (and iOS buffers nothing until asked).
+  function ready(v) {
+    if (!v.el) return !!lairData.buf;
+    return typeof urls[v.track] === 'string' && !!v.el.getAttribute('src') && !v.blocked;
   }
 
-  function playDeck(d) {
-    if (!d || d.pending || d.state === 'failed' || d.state === 'idle' || d.state === 'ended') return;
+  const audible = (v) => v.state === 'playing' || v.state === 'fading';
+
+  function playEl(v) {
+    if (v.pending) return;
     let p;
     try {
-      p = d.el.play();
+      p = v.el.play();
     } catch {
       return;
     }
     if (!p || typeof p.then !== 'function') return;
-    d.pending = true;
+    v.pending = true;
     p.then(
       () => {
-        d.pending = false;
+        v.pending = false;
       },
       (err) => {
-        d.pending = false;
+        v.pending = false;
         const why = err && err.name;
-        if (why === 'NotAllowedError') d.blocked = true; // wait for the next tap or key
-        else if (why === 'NotSupportedError') {
-          if (d.name) failed[d.name] = true;
-          d.state = 'failed';
+        if (why === 'NotAllowedError') {
+          // Wait for the next tap or key; whatever is playing keeps playing.
+          v.blocked = true;
+          if (v.state === 'starting') v.state = 'waiting';
+        } else if (why === 'NotSupportedError') {
+          urls[v.track] = false;
+          if (v.state !== 'idle') stopVoice(v);
         }
       },
     );
   }
 
-  // Load the track the game wants (if nothing is loaded) and play it. Called from a tap,
-  // key, or settings change, so it counts as a user gesture on iOS.
-  function startDeck() {
-    if (!cur) switchTo(lastWant);
-    for (const d of decks) d.blocked = false;
-    playDeck(cur);
-  }
-
-  // Stop streaming once the music bus has faded out. Timers still run in a hidden tab,
-  // where the frame hook doesn't.
-  function quietDeckSoon() {
-    setTimeout(() => {
-      if (paused || !musicOn) for (const d of decks) if (!d.el.paused) stop(d);
-    }, 900);
-  }
-
-  // A sector track finished: play it again, or hand over to the next sector's track.
-  function onEnded(d) {
-    const t = TRACKS[d.name];
-    if (d !== cur || !t || t.loop) return;
-    delete resumeAt[d.name];
-    rot.plays++;
-    if (rot.plays < (t.repeat || 1)) {
+  // Start voice `v` at `at` seconds into its track. A media voice turns up when it is
+  // actually playing (onPlaying); the lair's buffer plays at once.
+  function startVoice(v, at) {
+    const now = ctx.currentTime;
+    const g = v.gain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    v.handed = false;
+    v.held = false;
+    v.fadeEnd = 0;
+    v.fadeLen = 0;
+    if (!v.el) {
       try {
-        d.el.currentTime = 0;
+        stopSource(v);
+        const src = ctx.createBufferSource();
+        src.buffer = lairData.buf;
+        src.loop = true;
+        src.loopStart = lairData.start;
+        src.loopEnd = lairData.end;
+        src.connect(v.gain);
+        src.start(now, lairData.start + (at % (lairData.end - lairData.start)));
+        v.src = src;
+        v.started = now - at;
       } catch {
-        // A stream that can't seek starts over from the next load.
+        urls[v.track] = false;
+        v.state = 'idle';
+        return;
       }
-      playDeck(d);
-    } else {
-      rot.idx++;
-      rot.plays = 0;
-      d.state = 'ended';
+      v.state = 'playing';
+      g.linearRampToValueAtTime(TRACK_LEVEL, now + v.attack);
+      if (v === lead) fadeOthers(v);
+      return;
+    }
+    v.state = 'starting';
+    try {
+      if (Math.abs(v.el.currentTime - at) > 0.03) v.el.currentTime = at;
+    } catch {
+      // Can't seek: it starts where it is.
+    }
+    playEl(v);
+  }
+
+  function onPlaying(v) {
+    if (v.state !== 'starting') return;
+    if (v !== lead) {
+      stopVoice(v); // a start the game no longer wants
+      return;
+    }
+    v.state = 'playing';
+    const now = ctx.currentTime;
+    const g = v.gain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    g.linearRampToValueAtTime(TRACK_LEVEL, now + v.attack);
+    fadeOthers(v);
+  }
+
+  // Fade every voice but `keep`. A voice handing over rings out over its own tail.
+  function fadeOthers(keep) {
+    for (const v of voices) if (v !== keep) fadeOut(v);
+  }
+
+  function fadeOut(v) {
+    if (v.state === 'idle' || v.state === 'fading') return;
+    if (v.state !== 'playing') {
+      stopVoice(v); // never heard
+      return;
+    }
+    const now = ctx.currentTime;
+    let dur = RELEASE;
+    if (v.handed && v.el) {
+      dur = v.fadeLen || Math.max(0.05, Math.min(8, (v.el.duration || 0) - v.el.currentTime));
+    } else if (v.el && SECTOR.has(v.track)) {
+      resumeAt[v.track] = v.el.currentTime;
+    }
+    const g = v.gain.gain;
+    const from = g.value;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(from, now);
+    g.linearRampToValueAtTime(0, now + dur);
+    v.state = 'fading';
+    v.fadeEnd = now + dur + 0.05;
+  }
+
+  function stopSource(v) {
+    if (!v.src) return;
+    try {
+      v.src.stop();
+      v.src.disconnect();
+    } catch {
+      // Already stopped.
+    }
+    v.src = null;
+  }
+
+  function stopVoice(v) {
+    v.state = 'idle';
+    v.fadeEnd = 0;
+    v.handed = false;
+    v.held = false;
+    const now = ctx.currentTime;
+    v.gain.gain.cancelScheduledValues(now);
+    v.gain.gain.setValueAtTime(0, now);
+    if (!v.el) {
+      stopSource(v);
+      return;
+    }
+    try {
+      v.el.pause();
+      // Wait where the next start will most likely be, so it's instant.
+      const head = TRACKS[v.track].head || 0;
+      if (Math.abs(v.el.currentTime - head) > 0.05) v.el.currentTime = head;
+    } catch {
+      // A stream that can't seek starts from wherever it is.
     }
   }
 
+  // Where a track starts: a sector's track picks up where it stopped after the Shadow's
+  // music, unless the sector is new; otherwise at `head`, past any sparse opening.
+  function startAt(v, fresh) {
+    const t = TRACKS[v.track];
+    const pos = resumeAt[v.track];
+    const len = v.el ? v.el.duration : 0;
+    if (!fresh && SECTOR.has(v.track) && pos > 0 && (!(len > 0) || pos < len - (t.tail || 0) - 4)) return pos;
+    return t.head || 0;
+  }
+
+  // A scene change cuts short a long ring-out (a track handing over over its last bars).
+  function hurryFades() {
+    const now = ctx.currentTime;
+    for (const v of voices) {
+      if (v.state !== 'fading' || v.fadeEnd <= now + RELEASE) continue;
+      const g = v.gain.gain;
+      const from = g.value;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(from, now);
+      g.linearRampToValueAtTime(0, now + RELEASE);
+      v.fadeEnd = now + RELEASE + 0.05;
+    }
+  }
+
+  // Make `name` the track: bring back a voice that is still playing it, or start a free one.
+  function switchTo(name) {
+    hurryFades();
+    const fresh = !SECTOR.has(name) || rot.fresh;
+    if (SECTOR.has(name)) rot.fresh = false;
+    for (const v of voices) if (v.track !== name && (v.state === 'waiting' || v.state === 'starting')) stopVoice(v);
+    if (urls[name] === false || !voicesOf[name] || !voicesOf[name].length) {
+      lead = null; // the synth loop takes over
+      for (const v of voices) fadeOut(v);
+      return;
+    }
+    const pool = voicesOf[name];
+    if (!fresh) {
+      const back = pool.find((v) => v.state === 'playing' && !v.handed) || pool.find((v) => v.state === 'fading' && !v.handed);
+      if (back) {
+        lead = back;
+        const now = ctx.currentTime;
+        const g = back.gain.gain;
+        const from = g.value;
+        g.cancelScheduledValues(now);
+        g.setValueAtTime(from, now);
+        g.linearRampToValueAtTime(TRACK_LEVEL, now + ATTACK);
+        back.state = 'playing';
+        back.fadeEnd = 0;
+        fadeOthers(back);
+        return;
+      }
+    }
+    const v = pool.find((x) => x.state === 'idle') || pool.find((x) => x.state === 'fading') || pool[0];
+    if (v.state !== 'idle') stopVoice(v);
+    lead = v;
+    v.attack = ATTACK;
+    v.at = startAt(v, fresh);
+    v.state = 'waiting';
+    if (ready(v)) startVoice(v, v.at);
+  }
+
+  // Near its end, a track hands over while its last notes ring.
+  function checkHandoff(v) {
+    if (!v.el || v.handed) return;
+    const t = TRACKS[v.track];
+    const len = v.el.duration;
+    if (!(len > 0)) return;
+    const out = t.out != null ? t.out : len - (t.tail || 0.25);
+    if (v.el.currentTime < out) return;
+    handOff(v);
+  }
+
+  function handOff(v) {
+    const t = TRACKS[v.track];
+    let next = v.track;
+    if (!t.loop && SECTOR.has(v.track) && rot.list.length) {
+      rot.idx++;
+      next = rot.list[rot.idx % rot.list.length];
+      delete resumeAt[next];
+    }
+    const pool = voicesOf[next] || [];
+    const nv = pool.find((x) => x !== v && x.state === 'idle') || pool.find((x) => x !== v && x.state === 'fading');
+    v.handed = true;
+    v.fadeLen = t.out != null ? t.fade || RELEASE : 0;
+    if (!nv || urls[next] === false) return; // nothing free: it plays out
+    if (nv.state !== 'idle') stopVoice(nv);
+    lead = nv;
+    nv.attack = Math.min(ATTACK, Math.max(0.05, t.tail || ATTACK));
+    nv.at = TRACKS[next].head || 0;
+    nv.state = 'waiting';
+    if (ready(nv)) startVoice(nv, nv.at);
+  }
+
+  function onEnded(v) {
+    if (v === lead && !v.handed) handOff(v);
+    if (v.state !== 'idle' && v !== lead) stopVoice(v);
+  }
+
+  // Pausing stops the streams once the music bus has faded; they pick up where they were.
+  function holdAll() {
+    for (const v of voices) {
+      if (v.state === 'fading' || v.state === 'starting') stopVoice(v);
+      else if (v.state === 'playing' && !v.held) {
+        v.held = true;
+        if (v.el) {
+          try {
+            v.el.pause();
+          } catch {
+            // Already paused.
+          }
+        } else {
+          v.at = (ctx.currentTime - v.started) % (lairData.end - lairData.start || 1);
+          stopSource(v);
+        }
+      }
+    }
+  }
+
+  function resumeHeld() {
+    for (const v of voices) {
+      if (!v.held) continue;
+      v.held = false;
+      if (v.el) playEl(v);
+      else {
+        v.state = 'waiting';
+        startVoice(v, v.at);
+      }
+    }
+  }
+
+  function quietSoon() {
+    setTimeout(() => {
+      if (ctx && (paused || !musicOn)) holdAll();
+    }, 900);
+  }
+
+  // Called from unlock (a gesture): start whatever is waiting.
+  function kickMusic() {
+    if (!voices.length) return;
+    if (!lead) switchTo(lastWant);
+    resumeHeld();
+    if (lead && lead.state === 'waiting' && ready(lead)) startVoice(lead, lead.at);
+  }
+
   // The Shadow on your trail: from the moment he shows up in a room until TRAIL_HOLD
-  // seconds of play after he's gone, his sneaking music plays.
+  // seconds of play after he's gone, his music plays.
   function onTrail(game) {
     if (trail.game !== game) {
       trail.game = game;
@@ -587,34 +882,45 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       return 'title';
     }
     if (game.room.lair) return 'lair';
-    if (onTrail(game)) return 'creeping';
-    const zone = game.room.zone || 1;
+    const zone = Math.min(ROTATION.length, game.room.zone || 1);
     if (zone !== rot.zone) {
       rot.zone = zone;
-      rot.idx = zone - 1;
-      rot.plays = 0;
+      rot.list = [ROTATION[zone - 1], ...ROTATION.slice(0, zone - 1)];
+      rot.idx = 0;
+      rot.fresh = true;
+      for (const k of ROTATION) delete resumeAt[k];
     }
-    return ROTATION[rot.idx % ROTATION.length];
+    if (onTrail(game)) return 'trail';
+    return rot.list[rot.idx % rot.list.length];
   }
 
-  function updateDecks(want) {
-    if (!decks.length) return;
+  function updateMusic(want) {
+    if (!voices.length) return;
     const now = ctx.currentTime;
-    const live = musicOn && !paused;
-    if (!cur || want !== cur.name) switchTo(want);
-    for (const d of decks) if (d.stopAt && now >= d.stopAt) stop(d);
-    if (live) {
-      quietSince = 0;
-      if (cur.el.paused && !cur.blocked) playDeck(cur);
-    } else if (decks.some((d) => !d.el.paused)) {
-      // Let the music bus fade first, then stop streaming.
+    for (const v of voices) if (v.state === 'fading' && now >= v.fadeEnd) stopVoice(v);
+    if (!musicOn || paused) {
       if (!quietSince) quietSince = now;
-      else if (now - quietSince > 0.8) for (const d of decks) if (!d.el.paused) stop(d);
+      else if (now - quietSince > 0.8) holdAll();
+      return;
     }
+    quietSince = 0;
+    resumeHeld();
+    if (urls[want] === false) {
+      if (lead || voices.some(audible)) switchTo(want); // let the synth loop take over
+    } else if (!lead || lead.track !== want || (rot.fresh && SECTOR.has(want))) switchTo(want);
+    if (lead && lead.state === 'waiting' && ready(lead)) startVoice(lead, lead.at);
+    if (lead && lead.state === 'playing') checkHandoff(lead);
+    if (voices.some(audible)) silentSince = 0;
+    else if (!silentSince) silentSince = now;
   }
 
-  // The procedural loop plays only when there is no track to stream.
-  const synthMusic = () => !decks.length || !cur || cur.state === 'failed';
+  // The procedural loop plays when there is no track: no media support, a file that
+  // failed, or (for a moment) nothing loaded yet.
+  function synthMusic() {
+    if (!voices.length) return true;
+    if (urls[lastWant] === false) return true;
+    return silentSince > 0 && ctx.currentTime - silentSince > 1.5;
+  }
 
   // ------------------------------------------------------------------ synth music
 
@@ -648,11 +954,12 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     }
   }
 
-  // The music bus: off, paused, or ducked under the Shadow so his warning always reads.
+  // The music bus: off, paused, or ducked so the Shadow always reads. His warning pulse
+  // gets the deep duck; while he's in the room, the music only dips, so his track lands.
   let busLevel = -1;
   function updateMusicGain() {
     if (!ctx) return;
-    const duck = shadowNear || warnNear ? (inLair ? DUCK_LAIR : DUCK) : 1;
+    const duck = warnNear && !inLair ? DUCK_WARN : shadowNear || warnNear ? DUCK_NEAR : 1;
     const level = musicOn && !paused ? MUSIC_LEVEL * duck : 0;
     if (Math.abs(level - busLevel) < 1e-4) return;
     const tc = level < busLevel ? 0.12 : 0.5; // duck fast, come back slowly
@@ -660,6 +967,16 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     mus.gain.setTargetAtTime(level, ctx.currentTime, tc);
   }
 
+  // Drop the music for a moment, so a big sound lands harder.
+  function hitMusic(level, hold) {
+    const now = ctx.currentTime;
+    const g = musHit.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(level, now + 0.02);
+    g.setValueAtTime(level, now + hold);
+    g.linearRampToValueAtTime(1, now + hold + 1.2);
+  }
   // ------------------------------------------------------------------ one-shots
 
   function play(e, game) {
@@ -708,7 +1025,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
         break;
       }
       case 'foeDie': {
-        const chain = !!e.chain;
+        const chain = !!e.chain || e.by === 'barrel';
         const at = chain ? 0.05 : 0;
         if (!gate(chain ? 'boomChain' : 'boom', 0.04)) break;
         if (sample('boom', { at, vol: chain ? 0.75 : 1, rate: chain ? 1.12 : 1 })) {
@@ -719,6 +1036,45 @@ export function createAudio({ sound = true, music = true, context = null } = {})
         tone({ type: 'sine', f0: chain ? 220 : 150, f1: 38, dur: chain ? 0.28 : 0.4, vol: chain ? 0.2 : 0.3, at });
         break;
       }
+      case 'barrelBoom':
+        // Chain blasts come at least 0.34 s apart; the gate lets each one read.
+        if (gate('barrel', 0.2)) barrelBoom(!!e.chain);
+        break;
+      case 'overheat': {
+        // The ION-SHIV overheats: steam vents, and the charge drops away.
+        const vented = sample('overheat');
+        tone({ type: 'sawtooth', f0: 1500, f1: 260, dur: 0.5, vol: vented ? 0.025 : 0.05, filter: 'lowpass', q: { f: 2400, q: 1 } });
+        if (!vented) noise({ dur: 0.85, vol: 0.12, type: 'highpass', f0: 3000, f1: 1600, attack: 0.02 });
+        break;
+      }
+      case 'cooled':
+        if (sample('cooled')) break;
+        noise({ dur: 0.03, vol: 0.08, type: 'bandpass', f0: 2500, q: 2 });
+        tone({ type: 'sine', f0: 1568, dur: 0.18, vol: 0.06, at: 0.06 });
+        break;
+      case 'dryFire':
+        if (!gate('dry', 0.1)) break;
+        if (sample('dryFire')) break;
+        noise({ dur: 0.035, vol: 0.2, type: 'lowpass', f0: 900, q: 1.5 });
+        break;
+      case 'consoleUse':
+        if (!gate('console', 0.15)) break;
+        if (e.fresh) {
+          // New rooms on the map: a burst of data, then a rising chirp.
+          if (sample('consoleFresh')) break;
+          for (let i = 0; i < 5; i++) tone({ type: 'square', f0: 900 + ((i * 677) % 900), dur: 0.03, vol: 0.06, at: i * 0.035 });
+          notes([72, 76, 79, 84, 88], { type: 'square', step: 0.05, dur: 0.07, vol: 0.11, at: 0.2 });
+        } else if (!sample('consoleBeep')) {
+          tone({ type: 'square', f0: 932, dur: 0.09, vol: 0.05 });
+        }
+        break;
+      case 'consoleBreak':
+        if (!gate('consoleBreak', 0.08)) break;
+        if (sample('consoleBreak')) break;
+        noise({ dur: 0.25, vol: 0.2, type: 'highpass', f0: 2500, f1: 1200 });
+        for (let i = 0; i < 4; i++) noise({ dur: 0.03, vol: 0.15, at: 0.05 + i * 0.06, type: 'bandpass', f0: 3000 + i * 700, q: 2 });
+        tone({ type: 'sawtooth', f0: 220, f1: 60, dur: 0.3, vol: 0.08 });
+        break;
       case 'roomClear':
         tone({ type: 'sine', f0: 1318.5, dur: 0.7, vol: 0.12 });
         tone({ type: 'sine', f0: 2637, dur: 0.4, vol: 0.03 });
@@ -727,11 +1083,11 @@ export function createAudio({ sound = true, music = true, context = null } = {})
         break;
       case 'playerDie':
         if (e.cause === 'wall' || e.cause === 'pod') {
-          // The electric wall: a crackling zap.
-          if (sample('zap')) break;
-          noise({ dur: 0.55, vol: 0.28, type: 'bandpass', f0: 3200, f1: 900, q: 2.5 });
-          for (let i = 0; i < 6; i++) tone({ type: 'sawtooth', f0: 90 + ((i * 53) % 70), f1: 60, dur: 0.07, vol: 0.12, at: i * 0.075 });
-          tone({ type: 'square', f0: 1800, f1: 120, dur: 0.6, vol: 0.06 });
+          electrocute();
+        } else if (e.cause === 'barrel') {
+          // Caught in the blast: the boom (unless the barrel's own already played), then he powers down.
+          if (gate('barrel', 0.2)) barrelBoom(false);
+          if (!sample('powerDown', { at: 0.15 })) tone({ type: 'square', f0: 640, f1: 70, dur: 0.85, vol: 0.12, at: 0.15 });
         } else {
           // Shot or caught: the little detective powers down.
           if (sample('powerDown')) break;
@@ -844,6 +1200,38 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     }
   }
 
+  // A red barrel goes up: bigger than any robot, with its drum clanging away.
+  function barrelBoom(chain) {
+    if (sample('barrel', { vol: chain ? 0.9 : 1 })) {
+      sample('clankHeavy', { at: 0.07, vol: 0.8, rate: 0.7 });
+      return;
+    }
+    noise({ dur: 0.08, vol: 0.3, type: 'highpass', f0: 2000 });
+    noise({ dur: 0.95, vol: 0.5, type: 'lowpass', f0: 2600, f1: 80, q: 0.7 });
+    tone({ type: 'sine', f0: 120, f1: 28, dur: 0.8, vol: 0.45 });
+    tone({ type: 'triangle', f0: 640, f1: 410, dur: 0.25, vol: 0.06, at: 0.07 });
+  }
+
+  // Touching the electricity: the loudest thing in the game, on purpose. A hard snap, a
+  // deep thump, and a buzzing arc that sizzles for most of a second, with the music
+  // dropped out from under it. It hits the master compressor hard rather than raising
+  // anything, so the peak stays short and nothing clips.
+  const SHOCK = 1;
+  function electrocute() {
+    hitMusic(0.08, 0.9);
+    const v = SHOCK;
+    noise({ dur: 0.045, vol: 1.1 * v, type: 'highpass', f0: 1800, attack: 0.001 });
+    noise({ dur: 0.16, vol: 0.7 * v, type: 'bandpass', f0: 4200, f1: 1300, q: 0.7, attack: 0.001 });
+    tone({ type: 'sine', f0: 105, f1: 34, dur: 0.5, vol: 0.95 * v, attack: 0.002 });
+    const arced = sample('shock', { vol: v });
+    tone({ type: 'sawtooth', f0: 98, f1: 74, dur: 0.85, vol: (arced ? 0.12 : 0.32) * v, attack: 0.004, filter: 'bandpass', q: { f: 900, q: 0.8 } });
+    tone({ type: 'square', f0: 61, f1: 55, dur: 0.8, vol: (arced ? 0.08 : 0.22) * v, attack: 0.004 });
+    for (let i = 0; i < 12; i++) {
+      const at = 0.03 + i * 0.06 + Math.random() * 0.04;
+      noise({ dur: 0.02 + Math.random() * 0.04, vol: (arced ? 0.2 : 0.4) * (0.6 + Math.random() * 0.6) * v, at, type: 'bandpass', f0: 1500 + Math.random() * 5000, q: 1.5, attack: 0.001 });
+    }
+  }
+
   function step() {
     walk.alt ^= 1;
     if (sample('step')) return;
@@ -877,9 +1265,18 @@ export function createAudio({ sound = true, music = true, context = null } = {})
 
   // ------------------------------------------------------------------ the frame hook
 
+  // The ION-SHIV's whine: silent while it's cool, climbing past 60% heat.
+  function heatWhine(game, live) {
+    const p = game.player;
+    const heat = p && typeof p.heat === 'number' ? p.heat : 0;
+    const k = live && soundOn && !(p && p.overheatT > 0) ? Math.max(0, Math.min(1, (heat - 0.6) / 0.4)) : 0;
+    setLoop('heat', 0.05 * k * k, buildHeat, 0.06);
+    if (loops.heat && loops.heat.osc) loops.heat.osc.frequency.setTargetAtTime(650 + 1100 * k, ctx.currentTime, 0.05);
+  }
+
   function frame(events, game) {
     lastWant = trackFor(game);
-    updateDecks(lastWant);
+    updateMusic(lastWant);
     ms.tempo = game && game.room ? TEMPO[game.room.zone] || TEMPO[1] : TEMPO[0];
     if (musicOn && !paused && synthMusic()) scheduleMusic();
 
@@ -913,6 +1310,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     setLoop('drone', shadow ? 0.2 : 0, buildDrone, shadow ? 0.4 : 0.15);
     const pods = room.geo && room.geo.podPosts && room.geo.podPosts.length > 0;
     setLoop('hum', pods && room.podOn && live ? 0.045 : 0, buildHum, 0.06);
+    heatWhine(game, live);
     shadowNear = shadow;
     warnNear = warned;
     inLair = !!room.lair;
@@ -937,7 +1335,7 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       if (!ctx) return;
       if (paused) {
         loopsOff();
-        quietDeckSoon();
+        quietSoon();
       }
       updateMusicGain();
     },
@@ -947,13 +1345,11 @@ export function createAudio({ sound = true, music = true, context = null } = {})
     },
     setMusic(on) {
       musicOn = !!on;
-      if (ctx) {
-        ms.next = ctx.currentTime + 0.1;
-        updateMusicGain();
-        if (!decks.length) return;
-        if (!musicOn) quietDeckSoon();
-        else if (!paused && (!cur || cur.el.paused)) startDeck();
-      }
+      if (!ctx) return;
+      ms.next = ctx.currentTime + 0.1;
+      updateMusicGain();
+      if (!musicOn) quietSoon();
+      else if (!paused) kickMusic(); // a settings change is a gesture, so iOS lets it start
     },
     // A short click for menu moves, so the menus feel alive.
     blip(kind = 'move') {
@@ -965,14 +1361,25 @@ export function createAudio({ sound = true, music = true, context = null } = {})
       }
     },
     // Play one event for the audition page. `engine` is 'auto' (the sample when it's
-    // loaded) or 'synth' (the synthesized version). `type` can also be 'step' or 'ui:move'.
+    // loaded) or 'synth' (the synthesized version). `type` can also be 'step', 'heat'
+    // (the heat whine rising), or 'ui:move'.
     preview(type, data = {}, engine = 'auto') {
       if (!ctx) return false;
       force = engine === 'synth' ? 'synth' : null;
       try {
         for (const k of Object.keys(lastPlayed)) delete lastPlayed[k];
         if (type === 'step') step();
-        else if (type.startsWith('ui:')) menuBlip(type.slice(3));
+        else if (type === 'heat') {
+          const { osc } = loop('heat', buildHeat);
+          const out = loops.heat.out.gain;
+          const now = ctx.currentTime;
+          osc.frequency.setValueAtTime(650, now);
+          osc.frequency.linearRampToValueAtTime(1750, now + 2);
+          out.setValueAtTime(0, now);
+          out.linearRampToValueAtTime(0.05, now + 2);
+          out.linearRampToValueAtTime(0, now + 2.3);
+          loops.heat.level = 0;
+        } else if (type.startsWith('ui:')) menuBlip(type.slice(3));
         else play({ type, ...data }, null);
         return true;
       } catch {
@@ -981,12 +1388,29 @@ export function createAudio({ sound = true, music = true, context = null } = {})
         force = null;
       }
     },
-    // How many sample files have decoded, and which failed.
+    // How many sample files have decoded, which failed, which came from audio/local/, and
+    // what the music is doing.
     status() {
       return {
-        loaded: Object.keys(bufs).length, total: allFiles.length, missing: [...missing],
-        track: cur ? cur.name : null, trackState: cur ? cur.state : 'idle', fading: decks.filter((d) => d.stopAt).map((d) => d.name),
+        loaded: Object.keys(bufs).length, total: allFiles.length, missing: [...missing], local: [...fromLocal],
+        track: lead ? lead.track : null, trackState: lead ? lead.state : 'idle',
+        voices: voices.filter((v) => v.state !== 'idle').map((v) => ({ track: v.track, state: v.state, t: v.el ? +v.el.currentTime.toFixed(2) : null })),
+        tracksLoaded: Object.keys(urls).filter((k) => urls[k]).length, tracksFailed: Object.keys(urls).filter((k) => urls[k] === false),
       };
+    },
+    // The music bus level right now, in dBFS (for tests that listen for gaps).
+    meter() {
+      if (!ctx || !mus) return -200;
+      if (!meterNode) {
+        meterNode = ctx.createAnalyser();
+        meterNode.fftSize = 1024;
+        mus.connect(meterNode);
+      }
+      const buf = new Float32Array(meterNode.fftSize);
+      meterNode.getFloatTimeDomainData(buf);
+      let s = 0;
+      for (const x of buf) s += x * x;
+      return 10 * Math.log10(s / buf.length + 1e-20);
     },
     get running() {
       return !!ctx && ctx.state === 'running';

@@ -499,7 +499,7 @@ export default [
     ],
   },
   {
-    id: 119, // machine room: a sealed bank of consoles fills the south-east; you skirt it on an L of floor
+    id: 119, // machine room: a sealed bank of consoles fills the south-east; you skirt it on an L of floor and work it from the control panel on its west face
     n: 7,
     layout: [
       '#########...#########',
@@ -509,7 +509,7 @@ export default [
       '#...........O......e#',
       '....................#',
       '........#############',
-      '....e...#TTTTTTTTTTT#',
+      '....e..T#TTTTTTTTTTT#',
       '#.......#T=========T#',
       '#..O....#T=========T#',
       '#.......#T=========T#',

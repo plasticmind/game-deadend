@@ -1,11 +1,15 @@
 // A plain Canvas 2D top-down view of the sim state, with the same API as the Three.js
 // Renderer. main.js uses it with ?view=2d, and as the fallback when the 3D renderer
 // can't load (no WebGL, the CDN is unreachable, or src/render/ isn't there yet).
-// It draws what the sim knows: walls as lines, blocks, the item, Shamus, robots, shots,
-// bolts, and the Shadow. Nothing in it flashes; pulses stay under 1.5 Hz.
+// It draws what the sim knows: walls as lines, blocks (barrels lit or gone, consoles by
+// state), the item, Shamus and his gun's heat, robots, shots, bolts, and the Shadow.
+// Nothing in it flashes; pulses stay under 1.5 Hz.
 
 import { ZONES, KEY_COLORS } from './map.js';
 import { WALL_HALF, BLOCK_HALF, LOCK_FACE, DOOR, W, H } from './room.js';
+import { SKILLS, BARREL } from './sim/tuning.js';
+
+const SCREEN = { idle: '#3ee07a', used: '#4fd8ff', broken: '#2a1c18' };
 
 const FOE_STYLE = {
   droid: { fill: '#eef0f2', eye: '#ff3b30', label: 'D' },
@@ -84,6 +88,9 @@ export class Debug2D {
       if (e.type === 'foeDie' || e.type === 'playerDie' || e.type === 'shadowStun' || e.type === 'shadowHurt' || e.type === 'shadowDefeat') {
         this.fx.push({ x: e.x, y: e.y, t: 0, dur: e.type === 'shadowDefeat' ? 1.4 : 0.6, color: e.type === 'playerDie' ? '#ffb547' : e.type.startsWith('shadow') ? '#c9b8ff' : '#ffd23f' });
       }
+      if (e.type === 'barrelBoom') this.fx.push({ x: e.x, y: e.y, t: 0, dur: 0.7, color: '#ff8a2a', r: BARREL.radius });
+      if (e.type === 'consoleUse' && e.fresh) this.fx.push({ x: e.x, y: e.y, t: 0, dur: 0.9, color: '#4fd8ff', r: 2.2 });
+      if (e.type === 'consoleBreak') this.fx.push({ x: e.x, y: e.y, t: 0, dur: 0.5, color: '#ffb547' });
       if (e.type === 'roomEnter') this.fx.length = 0;
     }
 
@@ -151,24 +158,57 @@ export class Debug2D {
       ctx.setLineDash([]);
     }
 
-    // Blocks.
+    // Blocks. A lit barrel glows brighter as its fuse runs down; a blown one leaves a
+    // burn mark. Consoles show their state; one waiting to map the room swells slowly.
+    const attract = !SKILLS[game.skill]?.autoMap;
     for (const b of geo.blocks) {
       const x = b.x - BLOCK_HALF;
       const y = b.y - BLOCK_HALF;
       const sz = BLOCK_HALF * 2;
       if (b.kind === 'barrel') {
-        ctx.fillStyle = '#9b2a22';
+        if (b.gone) {
+          ctx.fillStyle = 'rgba(10, 8, 6, 0.6)';
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, BLOCK_HALF * 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          continue;
+        }
+        const lit = b.fuse > 0 ? 1 - b.fuse / BARREL.fuse : -1;
+        if (lit >= 0) {
+          ctx.fillStyle = `rgba(255, 150, 40, ${0.25 + 0.45 * lit})`;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, BLOCK_HALF * (1.3 + 0.5 * lit), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = lit >= 0 ? '#e0582a' : '#9b2a22';
         ctx.beginPath();
         ctx.arc(b.x, b.y, BLOCK_HALF, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = '#d4553f';
+        ctx.strokeStyle = lit >= 0 ? '#ffd23f' : '#d4553f';
         ctx.lineWidth = 0.06;
         ctx.stroke();
       } else if (b.kind === 'terminal') {
+        const st = b.state || 'idle';
         ctx.fillStyle = '#2b313d';
         ctx.fillRect(x, y, sz, sz);
-        ctx.fillStyle = '#3ee07a';
+        if (st === 'idle' && attract) {
+          const a = this.reduced ? 0.5 : 0.25 + 0.3 * (0.5 - 0.5 * Math.cos(this.t * Math.PI * 2 * 0.6));
+          ctx.strokeStyle = `rgba(62, 224, 122, ${a})`;
+          ctx.lineWidth = 0.08;
+          ctx.strokeRect(x - 0.1, y - 0.1, sz + 0.2, sz + 0.2);
+        }
+        ctx.fillStyle = SCREEN[st] ?? SCREEN.idle;
         ctx.fillRect(x + 0.18, y + 0.16, sz - 0.36, sz * 0.38);
+        if (st === 'broken') {
+          ctx.strokeStyle = '#ff8a2a';
+          ctx.lineWidth = 0.05;
+          ctx.beginPath();
+          ctx.moveTo(x + 0.22, y + 0.2);
+          ctx.lineTo(x + sz - 0.22, y + 0.16 + sz * 0.34);
+          ctx.moveTo(x + sz - 0.22, y + 0.2);
+          ctx.lineTo(x + 0.22, y + 0.16 + sz * 0.34);
+          ctx.stroke();
+        }
       } else {
         ctx.fillStyle = '#4a4f5c';
         ctx.fillRect(x, y, sz, sz);
@@ -274,7 +314,8 @@ export class Debug2D {
       ctx.strokeStyle = f.color;
       ctx.lineWidth = 0.08;
       ctx.beginPath();
-      ctx.arc(f.x, f.y, this.reduced ? 0.7 : 0.25 + k * 1.1, 0, Math.PI * 2);
+      const r = f.r ?? 1.35;
+      ctx.arc(f.x, f.y, this.reduced ? r * 0.6 : 0.25 + k * (r - 0.25), 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -380,15 +421,34 @@ export class Debug2D {
     ctx.beginPath();
     ctx.arc(p.x, p.y, (p.r ?? 0.3) * 0.55, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#e8e1d6';
-    ctx.lineWidth = 0.08;
+    // The gun shows its heat: blue when cold, orange and then red as it heats, and a
+    // dim red with a ring of steam while it is locked out.
+    const heat = Math.max(0, Math.min(1, p.heat ?? 0));
+    const hot = p.overheatT > 0;
+    ctx.strokeStyle = hot ? '#b8322a' : heat < 0.5 ? mixHex('#7fd4ff', '#ff9a3c', heat / 0.5) : mixHex('#ff9a3c', '#ff3b2a', (heat - 0.5) / 0.5);
+    ctx.lineWidth = 0.09;
     ctx.beginPath();
     ctx.moveTo(p.x + fx * 0.2, p.y + fy * 0.2);
-    ctx.lineTo(p.x + fx * 0.48, p.y + fy * 0.48);
+    ctx.lineTo(p.x + fx * 0.5, p.y + fy * 0.5);
     ctx.stroke();
+    if (heat > 0.02 || hot) {
+      ctx.strokeStyle = hot ? 'rgba(220, 220, 230, 0.55)' : `rgba(255, 140, 50, ${0.25 + 0.5 * heat})`;
+      ctx.lineWidth = 0.05;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 0.4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (hot ? 1 : heat));
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
     void game;
   }
+}
+
+function mixHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const k = Math.max(0, Math.min(1, t));
+  const ch = (s) => Math.round(((pa >> s) & 255) * (1 - k) + ((pb >> s) & 255) * k);
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
 }
 
 function faceVec(face = 0) {

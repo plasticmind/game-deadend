@@ -91,3 +91,20 @@ export const shadow = () =>
      <path d="M5 22c.4-6 2.6-10.6 7-10.6S18.6 16 19 22z" fill="#2a1d4d" stroke="#8f7bff" stroke-width="1"/>
      <path d="M8.8 13.6h2.6M12.6 13.6h2.6" stroke="#ffe14d" stroke-width="1.6" stroke-linecap="round"/>`,
   );
+
+// A console: a dark cabinet with a green screen and a little map on it.
+export const console = () =>
+  svg(
+    `<rect x="4" y="4" width="16" height="16" rx="2" fill="#2c3138"/>
+     <rect x="6" y="6" width="12" height="8" rx="1" fill="#0f3d24"/>
+     <path d="M8 12V9h3v-1h3v3h2" stroke="#4dff8a" stroke-width="1.3" fill="none" stroke-linejoin="round"/>
+     <rect x="7" y="16" width="4" height="2" rx=".5" fill="#ffb547"/><rect x="13" y="16" width="4" height="2" rx=".5" fill="#6b737d"/>`,
+  );
+
+// A red barrel with dark hoops.
+export const barrel = () =>
+  svg(
+    `<rect x="6" y="3.5" width="12" height="17" rx="2.5" fill="#d8392b"/>
+     <path d="M6 8h12M6 16h12" stroke="#7a1a12" stroke-width="1.6"/>
+     <path d="M9 5.5v13" stroke="#ff8a76" stroke-width="1.2" stroke-linecap="round" opacity=".7"/>`,
+  );

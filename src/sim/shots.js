@@ -4,10 +4,11 @@
 // shot and a bolt that meet destroy each other.
 
 import { W, H, DOOR, LOCK_FACE, touchesWall, touchesPod, blockAt } from '../room.js';
-import { DT, PLAYER, FOES } from './tuning.js';
+import { DT, SKILLS, PLAYER, FOES } from './tuning.js';
 import { emit, UNIT, hurtPlayer } from './core.js';
 import { hitFoe } from './foes.js';
 import { hitShadow } from './shadow.js';
+import { blockOn, explodeBarrel, breakConsole } from './props.js';
 
 const SUBSTEPS = 2; // projectiles move in half steps so fast pairs can't pass through each other
 
@@ -15,10 +16,17 @@ const SUBSTEPS = 2; // projectiles move in half steps so fast pairs can't pass t
 // is free, then wait `cooldown` before the next. Returns whether it fired.
 export function tryFire(game, ux = null, uy = null, cooldown = PLAYER.fireCooldown) {
   const p = game.player;
-  if (p.fireCd > 0 || game.shots.length >= PLAYER.maxShots) return false;
+  if (p.overheatT > 0 || p.fireCd > 0 || game.shots.length >= PLAYER.maxShots) return false;
   if (ux === null || uy === null) [ux, uy] = UNIT[p.face];
   game.shots.push({ id: game.nextId++, x: p.x + ux * PLAYER.muzzle, y: p.y + uy * PLAYER.muzzle, dx: ux, dy: uy, t: 0 });
   p.fireCd = cooldown;
+  // Every shot heats the gun; full heat locks it until it cools.
+  p.heat += SKILLS[game.skill].heat;
+  if (p.heat >= 1) {
+    p.heat = 1;
+    p.overheatT = PLAYER.overheatTime;
+    emit(game, 'overheat', { x: p.x, y: p.y });
+  }
   emit(game, 'fire', { x: p.x, y: p.y, face: p.face, dx: ux, dy: uy });
   return true;
 }
@@ -88,6 +96,14 @@ function moveShots(game, h) {
     const what = s.t > PLAYER.shotLife ? 'out' : obstacle(room, s.x, s.y, PLAYER.shotRadius);
     if (what) {
       shots.splice(i, 1);
+      // A barrel blows up; on the hardest skill a console breaks.
+      const b = what === 'block' ? struck(game, s.x, s.y, PLAYER.shotRadius) : null;
+      if (b && b.kind === 'barrel') {
+        explodeBarrel(game, b);
+        if (game.mode !== 'play') return;
+        continue;
+      }
+      if (b && b.kind === 'terminal' && SKILLS[game.skill].consolesBreak) breakConsole(game, b, 'shot');
       if (what !== 'out') emit(game, 'shotHit', { x: s.x, y: s.y, what });
       continue;
     }
@@ -121,6 +137,13 @@ function moveBolts(game, h) {
     const what = b.t > b.life ? 'fizzle' : obstacle(room, b.x, b.y, FOES.boltRadius);
     if (what) {
       bolts.splice(i, 1);
+      // Robots set off barrels too.
+      const hit = what === 'block' ? struck(game, b.x, b.y, FOES.boltRadius) : null;
+      if (hit && hit.kind === 'barrel') {
+        explodeBarrel(game, hit);
+        if (game.mode !== 'play') return;
+        continue;
+      }
       if (what !== 'out') emit(game, 'boltHit', { x: b.x, y: b.y, what });
       continue;
     }
@@ -149,6 +172,12 @@ function moveBolts(game, h) {
       break;
     }
   }
+}
+
+// The block a projectile at (x, y) ran into, from this visit's blocks.
+function struck(game, x, y, rad) {
+  const cell = blockAt(game.room.geo, x, y, rad);
+  return cell ? blockOn(game, cell.c, cell.r) : null;
 }
 
 // A shot and a bolt that meet both vanish.

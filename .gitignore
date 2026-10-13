@@ -1,2 +1,5 @@
 # Reference scans and art used while designing; not shipped in git.
 reference/
+# Sounds we may use in the game but not redistribute (for example, Pixabay downloads).
+# They deploy to the NAS from the working tree; the game falls back to the CC0 versions.
+audio/local/

@@ -2,18 +2,19 @@
 // same game. No DOM, no Three.js, no clocks; tools/sim-test.mjs runs it in Node.
 // docs/DESIGN.md lists every field the renderer and the shell may read.
 //
-// Robots live in foes.js, shots and bolts in shots.js, the Shadow in shadow.js, and
-// the helpers they share (events, score, death) in core.js.
+// Robots live in foes.js, shots and bolts in shots.js, the Shadow in shadow.js, barrels
+// and consoles in props.js, and the helpers they share (events, score, death) in core.js.
 
 import { ROOMS, START_ROOM, OPPOSITE, LOCKS, lockOn } from '../map.js';
 import { getRoom } from '../rooms/index.js';
 import { W, DOOR, LOCK_FACE, touchesWall, touchesPod, pushOutOfBlocks } from '../room.js';
-import { DT, SKILLS, PLAYER, SCORE, SHADOW, MYSTERY } from './tuning.js';
+import { DT, SKILLS, SHOWN_SKILLS, PLAYER, SCORE, SHADOW, MYSTERY } from './tuning.js';
 import { rand } from './rng.js';
 import { emit, banner, addScore, gainLife, canHurt, killPlayer, faceOf, dirOf } from './core.js';
 import { spawnFoes, updateFoes } from './foes.js';
 import { tryFire, updateProjectiles } from './shots.js';
 import { updateShadowClock, updateShadow, summonShadow } from './shadow.js';
+import { visitGeo, updateProps, useConsoles } from './props.js';
 
 export { DT, emit, banner, addScore, killPlayer, faceOf, dirOf };
 
@@ -37,6 +38,9 @@ export function createGame({ skill = 1, seed = 1, from = null, cheats = null } =
     taken: {}, // room id -> true once its item is collected
     opened: {}, // lock id (the keyhole room's id) -> true once unlocked
     visited: {}, // room id -> true
+    mapped: {}, // room id -> true once it shows on the map
+    sections: {}, // console room id -> true once a console has mapped its section
+    broken: {}, // room id -> indexes of its wrecked consoles (hardest skill)
     zoneReached: 1,
     lairHp: null, // the Shadow's hits left in the lair once the fight has started
     checkpoint: null, // snapshot taken on first entry to each sector; the shell saves it
@@ -48,6 +52,8 @@ export function createGame({ skill = 1, seed = 1, from = null, cheats = null } =
       // Mouse aiming: freeAim is true while he runs and guns toward the cursor, along the
       // unit vector (aimX, aimY).
       freeAim: false, aimX: 1, aimY: 0, queueT: 0,
+      // The ION-SHIV's heat, 0 to 1. Full heat locks it for overheatT seconds.
+      heat: 0, overheatT: 0,
     },
     shots: [],
     bolts: [],
@@ -81,6 +87,9 @@ export function makeSnapshot(game) {
     taken: { ...game.taken },
     opened: { ...game.opened },
     visited: { ...game.visited },
+    mapped: { ...game.mapped },
+    sections: { ...game.sections },
+    broken: Object.fromEntries(Object.entries(game.broken).map(([k, v]) => [k, v.slice()])),
     zoneReached: game.zoneReached,
     lairHp: game.lairHp,
     roomId: game.room.id,
@@ -99,6 +108,9 @@ function restore(game, s) {
   Object.assign(game.taken, s.taken);
   Object.assign(game.opened, s.opened);
   Object.assign(game.visited, s.visited);
+  Object.assign(game.mapped, s.mapped ?? (SKILLS[game.skill].autoMap ? s.visited : {}));
+  Object.assign(game.sections, s.sections);
+  for (const [k, v] of Object.entries(s.broken ?? {})) game.broken[k] = v.slice();
   game.zoneReached = s.zoneReached ?? 1;
   game.lairHp = s.lairHp ?? null;
   if (s.stats) Object.assign(game.stats, s.stats);
@@ -109,9 +121,9 @@ function restore(game, s) {
 // screen.
 export function newLoop(game) {
   game.loop++;
-  game.skill = Math.min(SKILLS.length - 1, game.skill + 1);
+  game.skill = SHOWN_SKILLS.find((id) => id > game.skill) ?? game.skill;
   for (const k of Object.keys(game.keys)) game.keys[k] = 0;
-  for (const bag of [game.taken, game.opened, game.visited]) for (const k of Object.keys(bag)) delete bag[k];
+  for (const bag of [game.taken, game.opened, game.visited, game.mapped, game.sections, game.broken]) for (const k of Object.keys(bag)) delete bag[k];
   game.zoneReached = 1;
   game.lairHp = null;
   game.mode = 'play';
@@ -142,7 +154,7 @@ export function entryPoint(room, side, along = null) {
 // Arrive in room `id` through its `side` door (null at the start or after a restart).
 export function enterRoom(game, id, side, along = null) {
   const meta = ROOMS[id];
-  const geo = getRoom(id);
+  const geo = visitGeo(getRoom(id), game, id);
   const sk = SKILLS[game.skill];
   const prevSerial = game.room ? game.room.serial : 0;
   const locks = {};
@@ -191,6 +203,7 @@ export function enterRoom(game, id, side, along = null) {
 
   const firstVisit = !game.visited[id];
   game.visited[id] = true;
+  if (sk.autoMap) game.mapped[id] = true;
   emit(game, 'roomEnter', { id, from: side, zone: meta.zone, firstVisit });
   if (meta.zone > game.zoneReached) {
     game.zoneReached = meta.zone;
@@ -248,6 +261,8 @@ export function stepGame(game, input = {}) {
   updateFoes(game);
   if (game.mode !== 'play') return;
   updateProjectiles(game);
+  if (game.mode !== 'play') return;
+  updateProps(game);
   if (game.freezeT > 0) game.freezeT = Math.max(0, game.freezeT - DT);
 }
 
@@ -266,6 +281,7 @@ function updatePlayer(game, input) {
   const room = game.room;
   const geo = room.geo;
   p.fireCd = Math.max(0, p.fireCd - DT);
+  coolGun(game);
   p.invulnT = Math.max(0, p.invulnT - DT);
   p.shieldT = Math.max(0, p.shieldT - DT);
 
@@ -277,6 +293,7 @@ function updatePlayer(game, input) {
   const fire = held ? false : !!input.fire;
   const aim = held ? null : input.aim;
   p.moving = false;
+  if (fire && !p.fireHeld && p.overheatT > 0) emit(game, 'dryFire', { x: p.x, y: p.y });
   if (aim) {
     // Mouse aiming: run and gun. Holding the button keeps firing as fast as the
     // ION-SHIVs come back, and a quick click that lands while none is free waits a moment
@@ -326,7 +343,17 @@ function updatePlayer(game, input) {
   if (room.podOn && touchesPod(geo, p.x, p.y, PLAYER.wallRadius) && canHurt(game, 'pod')) return killPlayer(game, 'pod');
 
   touchItem(game);
+  useConsoles(game);
   checkDoors(game);
+}
+
+// The ION-SHIV sheds heat all the time; once an overheat runs out it is ready again.
+function coolGun(game) {
+  const p = game.player;
+  p.heat = Math.max(0, p.heat - PLAYER.heatCool * DT);
+  if (p.overheatT <= 0) return;
+  p.overheatT = Math.max(0, p.overheatT - DT);
+  if (p.overheatT === 0) emit(game, 'cooled', { x: p.x, y: p.y });
 }
 
 // Where one step of walking along (ix, iy) takes Shamus: blocks push him aside and

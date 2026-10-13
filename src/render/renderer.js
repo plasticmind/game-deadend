@@ -8,8 +8,9 @@
 //   r.dispose();
 //
 // A fixed, steep perspective camera frames the whole room. The room scene is rebuilt
-// when game.room.id or game.room.serial changes; on roomExit the old room slides out
-// and the new one in (a cut with reduced motion).
+// when game.room.id, game.room.serial, or the game.room.geo object changes (each visit
+// has its own copy, so a respawn brings the barrels back); on roomExit the old room
+// slides out and the new one in (a cut with reduced motion).
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -18,6 +19,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { KEY_COLORS } from '../map.js';
+import { BARREL } from '../sim/tuning.js';
 import { Kit, FRAME_X, FRAME_Z, sectorColor, AMBER } from './kit.js';
 import { RoomView } from './roomview.js';
 import { Actors } from './actors.js';
@@ -40,9 +42,9 @@ const AIM_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.5);
 // cheaply than MSAA on a half-float target. Low renders straight to the canvas with the
 // context's own MSAA and no environment map.
 const TIERS = {
-  high: { budget: 4.0e6, ss: 1.5, bloom: true, bloomScale: 0.55, shadows: true, shadowSize: 2048, soft: true, samples: 0, env: true },
-  medium: { budget: 2.5e6, ss: 1.25, bloom: true, bloomScale: 0.45, shadows: true, shadowSize: 1024, soft: false, samples: 0, env: true },
-  low: { budget: 1.2e6, ss: 1, bloom: false, bloomScale: 0, shadows: false, shadowSize: 512, soft: false, samples: 0, env: false },
+  high: { budget: 4.0e6, ss: 1.5, bloom: true, bloomScale: 0.55, shadows: true, shadowSize: 2048, soft: true, samples: 0, env: true, boomLight: true },
+  medium: { budget: 2.5e6, ss: 1.25, bloom: true, bloomScale: 0.45, shadows: true, shadowSize: 1024, soft: false, samples: 0, env: true, boomLight: false },
+  low: { budget: 1.2e6, ss: 1, bloom: false, bloomScale: 0, shadows: false, shadowSize: 512, soft: false, samples: 0, env: false, boomLight: false },
 };
 const ORDER = ['high', 'medium', 'low'];
 
@@ -75,7 +77,14 @@ const C = {
   vanish: new THREE.Color(0.2, 0.08, 0.3),
   smear: new THREE.Color(0.16, 0.04, 0.26),
   brass: new THREE.Color(1.7, 1.1, 0.35),
+  fire: new THREE.Color(2.0, 0.8, 0.2),
+  uplink: new THREE.Color(0.4, 1.5, 2.0),
+  cool: new THREE.Color(0.5, 1.2, 2.2),
+  overheat: new THREE.Color(2.0, 0.6, 0.15),
+  dud: new THREE.Color(0.9, 0.3, 0.15),
 };
+// The one light pulse a barrel blast throws on the room around it.
+const BOOM_LIGHT = 26;
 
 const VIGNETTE_VERT = /* glsl */ `
   varying vec2 vUv;
@@ -140,7 +149,12 @@ export class Renderer {
     this.key.shadow.normalBias = 0.025;
     this.fill = new THREE.DirectionalLight(0x8f7bff, 0.55);
     this.fill.position.set(-9, 7, 10);
-    this.scene.add(this.hemi, this.key, this.key.target, this.fill);
+    // A point light that is always in the scene (at zero when idle), so a blast never
+    // changes the light count and never needs new shaders.
+    this.boom = new THREE.PointLight(0xff9a40, 0, 9, 1.6);
+    this.boom.position.set(0, 1.2, 0);
+    this.boomT = -1;
+    this.scene.add(this.hemi, this.key, this.key.target, this.fill, this.boom);
 
     this.vignette = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
@@ -164,6 +178,7 @@ export class Renderer {
     this.scene.add(this.ground);
     this.actors = new Actors(this.kit, this.scene);
     this.fx = new Fx(this.kit, this.scene);
+    this.fx.rm = this.rm;
 
     this.view = null; // current RoomView
     this.oldView = null; // the room sliding out
@@ -183,7 +198,8 @@ export class Renderer {
     this.sectorFill = new THREE.Color();
     this._c = new THREE.Color();
     this._ao = { dt: 0, time: 0, rm: false };
-    this._ws = { time: 0, dt: 0, warn: 0, podOn: 1, spillGain: 1 };
+    this._ws = { time: 0, dt: 0, warn: 0, podOn: 1, spillGain: 1, rm: false, fx: null };
+    this.steamAcc = 0;
 
     this.quality = 'auto';
     this.tier = 'high';
@@ -201,6 +217,7 @@ export class Renderer {
 
   setReducedMotion(on) {
     this.rm = !!on;
+    this.fx.rm = this.rm;
     if (this.rm) {
       this.shake = 0;
       if (this.slide) this.endSlide();
@@ -249,6 +266,7 @@ export class Renderer {
     if (!this.compiled) this.precompile();
     this.actors.update(game, ao);
     this.smokeDamaged(game, dt);
+    this.steamGun(game, dt);
     this.fx.update(dt, this.time);
     this.updateCamera(dt);
 
@@ -280,6 +298,7 @@ export class Renderer {
     this.vignette.geometry.dispose();
     this.vignette.material.dispose();
     this.envTex.dispose();
+    this.warm?.dispose();
     this.disposeComposer();
     this.gl.dispose();
   }
@@ -289,6 +308,10 @@ export class Renderer {
     this.tier = tier;
     const T = TIERS[tier];
     const gl = this.gl;
+    // The blast light is a real point light only on High: even at zero it costs every
+    // lit pixel every frame, which slower machines can't spare. Medium and Low show a
+    // blast's glow with its fireball and floor ring alone.
+    this.boom.visible = T.boomLight;
     gl.shadowMap.enabled = T.shadows;
     gl.shadowMap.type = T.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.key.castShadow = T.shadows;
@@ -352,10 +375,18 @@ export class Renderer {
 
   precompile() {
     this.actors.showAll(true);
+    this.fx.showAll(true);
     try {
       this.gl.compile(this.scene, this.camera);
+      // One draw into a tiny target also builds the shadow-map shaders, which compile()
+      // leaves for the first frame that needs them.
+      this.warm ??= new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType });
+      this.gl.setRenderTarget(this.warm);
+      this.gl.render(this.scene, this.camera);
+      this.gl.setRenderTarget(null);
     } finally {
       this.actors.showAll(false);
+      this.fx.showAll(false);
       this.actors.itemKey = '!';
     }
     this.compiled = true;
@@ -367,6 +398,21 @@ export class Renderer {
     for (const f of game.foes) {
       if (!(f.maxHp > 1 && f.hp < f.maxHp) || Math.random() > dt * 3) continue;
       this.fx.puff(f.x, f.y, 0.8, 1, { size: 0.3, life: 1.1, a: 0.4, spread: 0.08, rise: 0.8 });
+    }
+  }
+
+  // An overheated ION-SHIV trails steam from its barrel until it cools.
+  steamGun(game, dt) {
+    const p = game.player;
+    if (!(p.overheatT > 0) || !p.alive || !(dt > 0)) {
+      this.steamAcc = 0;
+      return;
+    }
+    this.steamAcc += dt * 12;
+    const tip = this.actors.shivTip;
+    while (this.steamAcc >= 1) {
+      this.steamAcc -= 1;
+      this.fx.steam(tip.x + 10.5, tip.z + 6.5, tip.y);
     }
   }
 
@@ -453,7 +499,8 @@ export class Renderer {
   // ------------------------------------------------------------------ rooms
   syncRoom(game, events) {
     const room = game.room;
-    if (room.id === this.roomId && room.serial === this.serial) return;
+    const geoChanged = !!this.view && this.view.geo !== room.geo;
+    if (room.id === this.roomId && room.serial === this.serial && !geoChanged) return;
     let exitSide = null;
     for (let i = 0; i < events.length; i++) if (events[i].type === 'roomExit') exitSide = events[i].side;
     const sameRoom = room.id === this.roomId && this.view;
@@ -469,7 +516,7 @@ export class Renderer {
       const v = this.view;
       let stale = false;
       for (const side in room.locks) if (!room.locks[side].open !== !!(v.locks[side] && !v.locks[side].done)) stale = true;
-      if (!stale) return;
+      if (!stale && !geoChanged) return;
     }
     if (this.slide) this.endSlide();
     const old = this.view;
@@ -537,11 +584,24 @@ export class Renderer {
       this.fx.puff(sh.x, sh.y, 0.5 + Math.random() * 1.2, 2, { color: C.smear, size: 0.8, life: 0.45, a: 0.5, spread: 0.25, rise: 0.1 });
     }
 
+    // The blast's light: up in a few hundredths of a second, down over a third.
+    if (this.boomT >= 0) {
+      this.boomT += dt;
+      const t = this.boomT;
+      this.boom.intensity = BOOM_LIGHT * (t < 0.04 ? t / 0.04 : Math.exp(-(t - 0.04) / 0.11));
+      if (t > 0.6) {
+        this.boomT = -1;
+        this.boom.intensity = 0;
+      }
+    }
+
     const s = this._ws;
     s.time = this.time;
     s.dt = dt;
     s.warn = w;
     s.podOn = this.podOn;
+    s.rm = this.rm;
+    s.fx = this.fx;
     this.view?.update(game, s);
     this.oldView?.update(null, s);
   }
@@ -597,11 +657,50 @@ export class Renderer {
           fx.ring(game.player.x, game.player.y, C.gold, { r1: 6, dur: 1.3, w: 0.05, a: 0.8 });
           fx.sparkle(game.player.x, game.player.y, C.gold, 26, 0.6);
           break;
+        case 'barrelBoom':
+          this.view?.blowBarrel(e.block);
+          fx.barrel(e.x, e.y, BARREL.radius);
+          this.boom.position.set(toX(e.x), 1.1, toZ(e.y));
+          this.boomT = 0;
+          this.kick(e.chain ? 0.12 : 0.17);
+          break;
+        case 'consoleUse':
+          this.view?.surge(e.block);
+          if (e.fresh) {
+            fx.holo(e.x, e.y);
+            fx.ring(e.x, e.y + 0.4, C.uplink, { r1: 2.6, dur: 0.9, w: 0.05, a: 0.9 });
+            fx.sparkle(e.x, e.y + 0.4, C.uplink, 22, 0.9);
+          } else {
+            fx.ring(e.x, e.y + 0.4, C.uplink, { r1: 1.1, dur: 0.5, w: 0.07, a: 0.6 });
+          }
+          break;
+        case 'consoleBreak':
+          fx.glass(e.x, e.y);
+          this.kick(0.04);
+          break;
+        case 'overheat': {
+          const tip = this.actors.shivTip;
+          fx.steam(tip.x + 10.5, tip.z + 6.5, tip.y, 6);
+          fx.spray(tip.x + 10.5, tip.z + 6.5, tip.y, 10, C.overheat, { speed: 2, up: 2, life: 0.4, size: 0.07, grav: 6 });
+          break;
+        }
+        case 'cooled': {
+          const tip = this.actors.shivTip;
+          fx.spray(tip.x + 10.5, tip.z + 6.5, tip.y, 12, C.cool, { speed: 1.2, up: 1.6, life: 0.55, size: 0.08, grav: -0.5, drag: 2.5, hot: 0.5 });
+          break;
+        }
+        case 'dryFire': {
+          const tip = this.actors.shivTip;
+          fx.steam(tip.x + 10.5, tip.z + 6.5, tip.y, 2);
+          fx.spray(tip.x + 10.5, tip.z + 6.5, tip.y, 3, C.dud, { speed: 1, up: 1, life: 0.3, size: 0.06, grav: 6 });
+          break;
+        }
         case 'playerDie': {
           const col = e.cause === 'wall' ? zoneColor
             : e.cause === 'pod' ? C.pod
             : e.cause === 'bolt' ? C.bolt
             : e.cause === 'shadow' ? C.violet
+            : e.cause === 'barrel' ? C.fire
             : C.white;
           fx.flash(e.x, e.y, 0.55, col, 2.4, 0.4);
           fx.spray(e.x, e.y, 0.5, 34, col, { speed: 3.5, up: 3.5, life: 0.9, size: 0.12 });

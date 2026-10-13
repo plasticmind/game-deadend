@@ -57,8 +57,9 @@ thickened by `WALL_HALF` (0.18). The player dies when their center comes within
 `WALL_HALF + PLAYER.wallRadius` (0.18 + 0.22) of it; their drawn body is a little wider
 than that on purpose, so a graze looks close but survives. Pod gates (`P`) are the same
 shape and are lethal only while on. Blocks (`B` crate, `O` barrel, `T` terminal) are
-boxes of half-size `BLOCK_HALF` (0.42) at their cell center: solid, harmless, and they
-stop shots. Locked doors are a colored barrier across the opening whose room-side face is
+boxes of half-size `BLOCK_HALF` (0.42) at their cell center: solid and they stop shots.
+Crates are inert. Barrels explode when a shot or bolt hits them, and terminals
+(consoles) map their section of the lair; see "Barrels, consoles, and heat". Locked doors are a colored barrier across the opening whose room-side face is
 `LOCK_FACE` (0.6) inside the door line: solid, harmless.
 
 Doors open through the middle three border cells of a side: north and south through
@@ -114,11 +115,16 @@ game = {
   taken: { [roomId]: true },            // items collected (keys, lives, mysteries)
   opened: { [lockId]: true },           // lockId is the keyhole room's id
   visited: { [roomId]: true },
+  mapped: { [roomId]: true },           // on the map (autoMap skills add rooms on entry)
+  sections: { [consoleRoomId]: true },  // sections a console has mapped
+  broken: { [roomId]: [blockIndex] },   // wrecked consoles (Chief only)
   zoneReached,                          // 1-4
   checkpoint,                           // snapshot from the first entry to the deepest sector
   room: {
     id, zone, serial,                   // serial changes on every entry (and respawn)
-    geo,                                // parsed room from getRoom(id): see src/room.js
+    geo,                                // this visit's copy of getRoom(id) (props.js visitGeo):
+                                        // its own `solid`, and blocks[i] = { c, r, x, y, kind,
+                                        // i, gone, fuse, touched, state }
     from,                               // side we came in by, or null
     entry: { x, y },
     t,                                  // seconds since entry
@@ -128,7 +134,7 @@ game = {
     podOn,                              // pod gates live right now
     locks: { [side]: { color, lockId, open } },
   },
-  player: { x, y, r, face, moving, aiming, freeAim, aimX, aimY, alive, deadT, invulnT, shieldT, boost, walk },
+  player: { x, y, r, face, moving, aiming, freeAim, aimX, aimY, heat, overheatT, alive, deadT, invulnT, shieldT, boost, walk },
   shots: [{ id, x, y, dx, dy, t }],                     // the player's ION-SHIVs (max 2)
   bolts: [{ id, x, y, vx, vy, t, from }],               // robot fire; `from` is a foe type
   foes: [{ id, type, x, y, face, state, t, hp, maxHp, armored, ... }],  // type below; state is per type
@@ -197,6 +203,36 @@ More state the sim keeps (the renderer and HUD may read any of it):
 
 Robots and bolts can't hurt Shamus while `invulnT` (after a respawn) or `shieldT` (a
 mystery) is above 0. The Shadow ignores the shield; walls ignore both.
+
+### Barrels, consoles, and heat
+
+src/sim/props.js owns barrels and consoles. Each room visit gets its own copy of the
+room's `solid` cells and blocks, so a barrel that blew up stays gone (its cell turns to
+floor for walking, robots, and shots) until the next visit, and respawning re-enters the
+room with every barrel back.
+
+- **Barrels.** A shot or a robot bolt that hits a barrel explodes it (`barrelBoom`). The
+  blast kills Shamus within `BARREL.radius` (the respawn grace, the shield, and the
+  invuln cheat protect him; cause `'barrel'`), deals `BARREL.damage` hits to every robot
+  it reaches (`by: 'barrel'`), stuns the Shadow (or hurts him in the lair) as a shot
+  would, wrecks consoles on Chief, and lights every barrel within `BARREL.chain`. A lit
+  barrel's `fuse` counts down from `BARREL.fuse` (0.34 s), which keeps a chain to three
+  booms a second at most.
+- **Consoles and sections.** Every room belongs to one section: the console room
+  (a room with at least one `T`) nearest it by door hops within its sector
+  (`sectionOf`, `sectionRooms` in src/rooms/index.js). When Shamus's body comes within
+  `CONSOLE.reach` of a working console's box, its section goes on the map
+  (`game.sections`, `game.mapped`), once, for `SCORE.mapSection` times the zone. A
+  console's `state` is 'idle', 'used' (its section is mapped), or 'broken'. On Rookie
+  (`SKILLS.autoMap`), entering a room also maps it. On Chief (`SKILLS.consolesBreak`),
+  the player's shots and barrel blasts wreck consoles for the rest of the run
+  (`game.broken`, kept in snapshots).
+- **Heat.** Every ION-SHIV shot adds the skill's `heat` to `player.heat`, which sheds
+  `PLAYER.heatCool` a second. At 1 the gun overheats: `player.overheatT` counts down
+  `PLAYER.overheatTime` and nothing fires until it reaches 0 (`cooled`). Death resets it.
+- **Skills.** `DEFAULT_SKILL` (Detective) is where a new case starts; `SHOWN_SKILLS` is
+  what the menus offer (Gumshoe is `hidden`). A new loop and "play again, harder" step
+  to the next shown skill.
 
 ### Robots (`foe.type`)
 
@@ -275,6 +311,12 @@ Each is `{ type, ...fields }`. The renderer, audio, and HUD react to them.
 | `boltHit` | `x, y, what` ('wall', 'block', 'pod', 'lock', 'foe', 'shield', 'freeze', 'fizzle'): a robot bolt ended |
 | `shadowBlink` | `x, y, fromX, fromY` (lair: he vanished and reappeared) |
 | `foeHop` | `id, x, y` (a jumper took off) |
+| `barrelBoom` | `x, y, block, chain` (chain: another barrel's blast lit it) |
+| `consoleUse` | `x, y, block, fresh, points, rooms` (fresh: it mapped a new section of `rooms` rooms) |
+| `consoleBreak` | `x, y, block, by` ('shot' or 'barrel'; Chief only) |
+| `overheat` | `x, y` (the ION-SHIV locked for `PLAYER.overheatTime`) |
+| `cooled` | `x, y` (it's ready again) |
+| `dryFire` | `x, y` (fire pressed while overheated) |
 
 `type` is always the event's name. In `boltFire`, `foeHit`, and `foeDie`, the robot type
 listed as `type` in the table travels as `foe` instead (a field can't overwrite the

@@ -7,7 +7,7 @@
 //   ?debug&play=1&skill=2&room=40   start a game right away, optionally in a room
 
 import * as sim from './sim/game.js';
-import { SKILLS } from './sim/tuning.js';
+import { SKILLS, DEFAULT_SKILL, SHOWN_SKILLS } from './sim/tuning.js';
 import { ZONES } from './map.js';
 import { createInput } from './input.js';
 import { createHud } from './hud.js';
@@ -40,12 +40,18 @@ const run = {
   game: null, // the player's game
   demo: null, // the calm game behind the title screen
   checkpoint: null, // the deepest checkpoint of this run (what Continue restores)
-  lastSkill: save.checkpoint?.skill ?? 1,
+  lastSkill: shownSkill(save.checkpoint?.skill),
   acc: 0,
   endKind: null,
   endT: 0,
   ended: null, // data for the end screen
 };
+
+// A skill the menus offer: a hidden or unknown one becomes the default.
+function shownSkill(id) {
+  return SHOWN_SKILLS.includes(id) ? id : DEFAULT_SKILL;
+}
+
 const pending = []; // events created outside a step (createGame, newLoop, debug jumps)
 const frameEvents = [];
 let renderer = null;
@@ -193,7 +199,7 @@ function enterPlay() {
   blurFocus();
 }
 
-function startGame({ skill = 1, from = null, checkpoint = null }) {
+function startGame({ skill = DEFAULT_SKILL, from = null, checkpoint = null }) {
   const g = createGame({ skill, seed: newSeed(), from });
   run.game = g;
   run.lastSkill = skill;
@@ -204,7 +210,8 @@ function startGame({ skill = 1, from = null, checkpoint = null }) {
   if (g.checkpoint) save.setCheckpoint(g.checkpoint);
   hud.reset();
   const z = ZONES[g.room.zone];
-  hud.moment(z.name.toUpperCase(), from ? 'Back on the case.' : 'Find the keys. Keep moving.', z.color);
+  const opener = SKILLS[skill].autoMap ? 'Find the keys. Keep moving.' : 'Find the keys. Consoles map the lair.';
+  hud.moment(z.name.toUpperCase(), from ? 'Back on the case.' : opener, z.color);
   enterPlay();
   return g;
 }
@@ -212,8 +219,9 @@ function startGame({ skill = 1, from = null, checkpoint = null }) {
 // Continue from a checkpoint with the skill's starting lives.
 function continueFrom(cp) {
   if (!cp) return startGame({ skill: run.lastSkill });
-  const skill = SKILLS[cp.skill] ? cp.skill : 1;
-  return startGame({ skill, from: { ...cp, lives: SKILLS[skill].lives }, checkpoint: cp });
+  // A save from a skill the menus no longer offer carries on at the default.
+  const skill = shownSkill(cp.skill);
+  return startGame({ skill, from: { ...cp, skill, lives: SKILLS[skill].lives }, checkpoint: cp });
 }
 
 function pause() {
@@ -269,7 +277,8 @@ function playAgain() {
     enterPlay();
     return;
   }
-  startGame({ skill: Math.min(SKILLS.length - 1, (g ? g.skill : run.lastSkill) + 1) });
+  const now = g ? g.skill : run.lastSkill;
+  startGame({ skill: SHOWN_SKILLS.find((id) => id > now) ?? now });
 }
 
 // ------------------------------------------------------------------ the end of a game
@@ -448,7 +457,7 @@ if (DEBUG) {
     get checkpoint() {
       return run.checkpoint;
     },
-    start: (skill = 1) => startGame({ skill }),
+    start: (skill = DEFAULT_SKILL) => startGame({ skill }),
     cheat(name, on = true) {
       const g = run.game;
       if (!g) return null;
@@ -510,7 +519,7 @@ async function boot() {
   renderer.resize?.();
 
   if (DEBUG && params.has('play')) {
-    const skill = Math.max(0, Math.min(SKILLS.length - 1, Number(params.get('skill') ?? 1) || 0));
+    const skill = Math.max(0, Math.min(SKILLS.length - 1, Number(params.get('skill') ?? DEFAULT_SKILL) || 0));
     startGame({ skill });
     if (params.has('room')) window.deadEnd.room(Number(params.get('room')));
   }

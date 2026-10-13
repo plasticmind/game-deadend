@@ -42,6 +42,14 @@
         </table>
       </div>
 
+      <h2 id="synth-head">Synthesized only</h2>
+      <div class="wrap">
+        <table aria-labelledby="synth-head">
+          <thead><tr><th scope="col">Sound</th><th scope="col">Plays for</th><th scope="col">Listen</th></tr></thead>
+          <tbody id="synth"></tbody>
+        </table>
+      </div>
+
       <h2 id="music-head">Music</h2>
       <div class="wrap">
         <table aria-labelledby="music-head">
@@ -52,7 +60,7 @@
     </main>
 
     <script type="module">
-      import { createAudio, SAMPLES, SOURCES, TRACKS, sfxUrl, musicUrl } from '../src/audio.js';
+      import { createAudio, SAMPLES, SOURCES, TRACKS, sfxUrl, musicUrl, localUrl } from '../src/audio.js';
 
       // The event (and its data) that plays each sample in the game.
       const EVENTS = {
@@ -62,7 +70,8 @@
         clank: ['foeHit', { hp: 2 }],
         clankHeavy: ['foeHit', { hp: 1 }],
         boom: ['foeDie', { armored: false }],
-        zap: ['playerDie', { cause: 'wall' }],
+        barrel: ['barrelBoom', { chain: false }],
+        shock: ['playerDie', { cause: 'wall' }],
         powerDown: ['playerDie', { cause: 'foe' }],
         keys: ['pickup', { kind: 'key' }],
         bottle: ['pickup', { kind: 'life' }],
@@ -75,6 +84,12 @@
         unlock: ['keyUse'],
         door: ['doorOpen'],
         locked: ['doorLocked'],
+        consoleFresh: ['consoleUse', { fresh: true }],
+        consoleBeep: ['consoleUse', { fresh: false }],
+        consoleBreak: ['consoleBreak'],
+        overheat: ['overheat'],
+        cooled: ['cooled'],
+        dryFire: ['dryFire'],
         shadowSwell: ['shadowEnter'],
         stun: ['shadowStun'],
         shadowHurt: ['shadowHurt'],
@@ -117,26 +132,26 @@
       function showStatus() {
         const s = audio.status();
         statusEl.textContent = audio.running
-          ? `${s.loaded} of ${s.total} sample files loaded${s.missing.length ? `; missing: ${s.missing.join(', ')}` : ''}.`
+          ? `${s.loaded} of ${s.total} sample files loaded${s.local.length ? ` (${s.local.join(', ')} from audio/local/)` : ''}${s.missing.length ? `; missing: ${s.missing.join(', ')}` : ''}.`
           : 'Audio starts after you press the button.';
         if (audio.running && s.loaded + s.missing.length < s.total) setTimeout(showStatus, 300);
       }
 
-      async function playFile(file) {
+      async function playFile(url) {
         start();
         try {
-          if (!decoded[file]) {
-            const ab = await (await fetch(sfxUrl(file))).arrayBuffer();
-            decoded[file] = await new Promise((ok, bad) => ctx.decodeAudioData(ab, ok, bad));
+          if (!decoded[url]) {
+            const ab = await (await fetch(url)).arrayBuffer();
+            decoded[url] = await new Promise((ok, bad) => ctx.decodeAudioData(ab, ok, bad));
           }
           const src = ctx.createBufferSource();
-          src.buffer = decoded[file];
+          src.buffer = decoded[url];
           const g = ctx.createGain();
           g.gain.value = 0.35;
           src.connect(g).connect(ctx.destination);
           src.start();
         } catch {
-          statusEl.textContent = `Couldn't play ${file}.mp3.`;
+          statusEl.textContent = `Couldn't play ${url.split('/').slice(-2).join('/')}.`;
         }
       }
 
@@ -146,9 +161,24 @@
         audio.preview(type, data, engine);
       }
 
+      // A local-only file (audio/local/, not in the repo) gets its own button if it's here.
+      function localButton(file, cell, note) {
+        fetch(localUrl(file), { method: 'HEAD' })
+          .then((r) => {
+            if (!r.ok) return;
+            cell.append(el('button', { type: 'button', class: 'file', onclick: () => playFile(localUrl(file)), 'aria-label': `Play local ${file}.mp3` }, 'Local'));
+            note.hidden = false;
+          })
+          .catch(() => {});
+      }
+
       const sfxBody = document.getElementById('sfx');
       for (const [name, s] of Object.entries(SAMPLES)) {
         const src = SOURCES[s.from];
+        const files = el('div', {}, ...s.files.map((f, i) => el('button', { type: 'button', class: 'file', onclick: () => playFile(sfxUrl(f)), 'aria-label': `Play ${f}.mp3` }, String(i + 1))));
+        const localNote = el('div', { class: 'muted', text: s.localFrom ? `Local: audio/local/${s.local}.mp3, ${s.localFrom}. The game plays it instead when it's here.` : '' });
+        localNote.hidden = true;
+        if (s.local) localButton(s.local, files, localNote);
         sfxBody.append(
           el('tr', {},
             el('td', {}, el('strong', { text: name }), el('div', { class: 'muted', text: s.files.map((f) => `${f}.mp3`).join(', ') })),
@@ -156,11 +186,12 @@
             el('td', { class: 'listen' },
               el('button', { type: 'button', onclick: () => preview(name, 'auto'), 'aria-label': `${name}: play in game` }, 'In game'),
               el('button', { type: 'button', class: 'alt', onclick: () => preview(name, 'synth'), 'aria-label': `${name}: play the synth version` }, 'Synth'),
-              el('div', {}, ...s.files.map((f, i) => el('button', { type: 'button', class: 'file', onclick: () => playFile(f), 'aria-label': `Play ${f}.mp3` }, String(i + 1)))),
+              files,
             ),
             el('td', {},
               link(src.url, `${src.author}, ${src.pack}`),
               el('div', { class: 'muted', text: `${s.orig} · ${src.license}` }),
+              localNote,
             ),
           ),
         );
@@ -174,7 +205,8 @@
         player.addEventListener('loadedmetadata', () => {
           const m = Math.floor(player.duration / 60);
           const sec = Math.round(player.duration % 60);
-          len.textContent = `${m}:${String(sec).padStart(2, '0')}${t.loop ? ', loops' : `, plays ${t.repeat === 1 ? 'once' : `${t.repeat} times`} in turn`}`;
+          const loops = t.out ? `, loops its first ${Math.floor(t.out / 60)}:${String(Math.round(t.out % 60)).padStart(2, '0')}` : t.loop ? ', loops' : ', then hands over to the next track';
+          len.textContent = `${m}:${String(sec).padStart(2, '0')}${loops}`;
         });
         musicBody.append(
           el('tr', {},
@@ -182,6 +214,18 @@
             el('td', { class: 'use', text: t.use }),
             el('td', {}, player, len),
             el('td', {}, link(t.url, t.author), el('div', { class: 'muted', text: t.license })),
+          ),
+        );
+      }
+
+      // Sounds with no recording.
+      const synthBody = document.getElementById('synth');
+      for (const [label, use, type] of [['Heat whine', 'The ION-SHIV heating past 60% (a loop that follows player.heat)', 'heat']]) {
+        synthBody.append(
+          el('tr', {},
+            el('td', {}, el('strong', { text: label })),
+            el('td', { class: 'use', text: use }),
+            el('td', { class: 'listen' }, el('button', { type: 'button', class: 'alt', onclick: () => { start(); audio.preview(type); }, 'aria-label': `${label}: play` }, 'Synth')),
           ),
         );
       }

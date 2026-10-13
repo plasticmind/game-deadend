@@ -29,7 +29,7 @@ node tools/room-brief.mjs 2           # what every sector 2 room needs
 | `.` | Floor |
 | `B` | Crate: solid, harmless, stops shots |
 | `O` | Barrel: same as a crate, round |
-| `T` | Terminal (a console with a green screen): same as a crate |
+| `T` | Console (a terminal with a green screen): solid like a crate. Using one maps its section of the lair |
 | `v` | Floor vent (walkable decoration) |
 | `=` | Floor grate (walkable decoration) |
 | `P` | Pod gate: an electric beam that switches on and off (pod rooms only) |
@@ -52,6 +52,23 @@ node tools/room-brief.mjs 2           # what every sector 2 room needs
 - Every door has a safe landing: no wall within about 1.6 cells inward of the door, and
   no crate in it.
 - At least three spawn points (or `n`, if smaller) sit 6 or more units from each door.
+- In a console room, at least one console is usable from every door: there is a point
+  the player's body can reach where the gap between his body and the console's box is
+  at most `CONSOLE.reach` (0.15 units, in `src/sim/tuning.js`).
+
+## Consoles and sections
+
+Shamus uses a console by walking up to it. Using any console in a room maps that room's
+whole section of the lair. Sections are computed from the console rooms, the rooms with
+at least one `T`: every room belongs to the console room nearest to it by door hops
+within its own sector. Adding or removing a console room changes the sections, so do it
+on purpose. Adding or moving a `T` inside a room that already has one changes nothing
+on the map.
+
+Place a console like a wall-mounted unit: back against a wall, with open floor in
+front, out of the door landings and off the main path. Its screen faces south, toward
+the camera, so a console with a wall to its north reads best. A console next to barrels
+is a fair risk; a console boxed in by other blocks can't be used.
 
 ## Designing a good room
 
@@ -72,7 +89,8 @@ and alcoves, drawn with straight orthogonal lines. A few habits make them play w
   player waits for the gate to drop and dashes through. Never put a gate where a player
   must stand still to survive.
 - Crates and barrels are cover. Use them in about half the rooms, a few at a time.
-  Terminals suit offices and labs. Vents and grates are pure decoration.
+  Consoles suit offices and labs, and they map a section (see "Consoles and sections").
+  Vents and grates are pure decoration.
 - Deeper sectors get denser: sector 1 is open and forgiving, sector 4 is tight and
   crowded. The lair (room 127) is the Shadow's arena: open, with a few pillars and crates
   to dodge around, and `n` of 0 to 4.
