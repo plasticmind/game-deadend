@@ -296,7 +296,7 @@ function updatePlayer(game, input) {
     p.freeAim = fire || p.queueT > 0;
     if (p.freeAim) p.face = faceOf(p.aimX, p.aimY);
     else if (ix || iy) p.face = faceOf(ix, iy);
-    if (p.freeAim && tryFire(game, p.aimX, p.aimY)) p.queueT = 0;
+    if (p.freeAim && tryFire(game, p.aimX, p.aimY, PLAYER.mouseCooldown)) p.queueT = 0;
   } else {
     // Fire plants Shamus's feet. A held direction aims and fires along it (again and
     // again while held); a press with no direction fires once along his facing.

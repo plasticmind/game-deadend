@@ -1,6 +1,6 @@
-// Everything that moves, drawn from sim state each frame: Shamus, the five robot types,
-// the Shadow, shots, bolts, and the room's item. Meshes are built once from primitives
-// and pooled by type; robots are matched to sim foes by id.
+// Everything that moves, drawn from sim state each frame: Shamus, the five robot types
+// (and their brass armor), the Shadow, shots, bolts, and the room's item. Meshes are
+// built once from primitives and pooled by type; robots are matched to sim foes by id.
 
 import * as THREE from 'three';
 import { bake, toX, toZ, yawOf, approach, approachAngle, clamp01, smooth } from './util.js';
@@ -9,6 +9,14 @@ import { KEY_COLORS } from '../map.js';
 const TAU = Math.PI * 2;
 const ICE = new THREE.Color(0.55, 0.8, 1.0);
 const ROBOT_SCALE = { droid: 1.75, drone: 1.65, jumper: 1.7, sniffer: 1.65, warden: 1.55 };
+// Brass means armor: every brass piece on a robot is one more hit it can take. Armored
+// robots are also a little bigger.
+const BRASS = '#d9a441';
+const BRASS_DARK = '#9c6a24';
+const BRASS_GLOW = new THREE.Color(0.2, 0.12, 0.03);
+const ARMORED_SCALE = 1.1;
+// An opening in a dome's front (+x), for helmets and shells that leave the eyes clear.
+const shell = (r, gap, theta = Math.PI / 2) => new THREE.SphereGeometry(r, 20, 10, Math.PI + gap / 2, TAU - gap, 0, theta);
 
 const lathe = (pts, seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
 const cyl = (rt, rb, h, s = 12, open = false) => new THREE.CylinderGeometry(rt, rb, h, s, 1, open);
@@ -261,6 +269,13 @@ function robotParts() {
       [cyl(0.034, 0.028, 0.24, 8), '#8d96a3', { y: -0.12 }],
       [sph(0.048, 8, 6), '#3a3f48', { y: -0.245 }],
     ]),
+    // Brass plating: a helmet open at the eye, a band, and shoulder plates.
+    armor: bake([
+      [shell(0.272, 1.4), BRASS, { y: 0.29 }],
+      [new THREE.TorusGeometry(0.262, 0.032, 6, 28), BRASS_DARK, { y: 0.25, rx: Math.PI / 2 }],
+      [box(0.13, 0.09, 0.05), BRASS, { y: 0.31, z: 0.275 }],
+      [box(0.13, 0.09, 0.05), BRASS, { y: 0.31, z: -0.275 }],
+    ]),
   };
   // Whirling Drone: spinning disc-top with blades, cyan glow.
   P.drone = {
@@ -301,6 +316,11 @@ function robotParts() {
       [coil, '#c8d0d8'],
       [box(0.13, 0.03, 0.09), '#2c7334', { x: 0.02, y: -0.215 }],
     ]),
+    // Brass plating: a shell over the back, open at the eyes, with a ridge on top.
+    armor: bake([
+      [shell(0.262, 1.7, 1.25), BRASS, { sx: 1.18, sy: 0.74 }],
+      [box(0.3, 0.05, 0.07), BRASS_DARK, { x: -0.08, y: 0.2 }],
+    ]),
   };
   // Sniffer: low hound bot with a long sensor snout, violet. Armored front.
   P.sniffer = {
@@ -312,8 +332,8 @@ function robotParts() {
       [cyl(0.012, 0.012, 0.26, 6), '#5b5470', { x: -0.33, y: 0.38, rz: 0.7 }],
     ]),
     armor: bake([
-      [new THREE.SphereGeometry(0.16, 14, 10, 0, Math.PI, 0, Math.PI), '#5d48a0', { x: 0.12, y: 0.29, ry: -Math.PI / 2, sx: 1.05, sz: 1.2 }],
-      [box(0.05, 0.16, 0.24), '#5f4c95', { x: 0.27, y: 0.29 }],
+      [new THREE.SphereGeometry(0.16, 14, 10, 0, Math.PI, 0, Math.PI), BRASS, { x: 0.12, y: 0.29, ry: -Math.PI / 2, sx: 1.05, sz: 1.2 }],
+      [box(0.05, 0.16, 0.24), BRASS_DARK, { x: 0.27, y: 0.29 }],
     ]),
     tip: bake([
       [sph(0.05, 10, 8), '#ffffff', { x: 0.59, y: 0.235 }],
@@ -344,6 +364,17 @@ function robotParts() {
       [sph(0.03, 8, 6), '#ffffff', { x: 0.465, z: 0.08 }],
       [sph(0.03, 8, 6), '#ffffff', { x: 0.465, z: -0.08 }],
     ]),
+    // Brass, one piece per extra hit, shaped for the camera up above: a collar around
+    // the base (the last to go) and a cap over the head (the first).
+    collar: bake([
+      [new THREE.TorusGeometry(0.43, 0.055, 8, 32), BRASS, { y: 0.1, rx: Math.PI / 2 }],
+      [cyl(0.47, 0.47, 0.03, 32, true), BRASS_DARK, { y: 0.06 }],
+    ]),
+    cap: bake([
+      [new THREE.SphereGeometry(0.258, 20, 10, 0, TAU, 0, 1.25), BRASS, { sx: 1.12, sy: 0.8 }],
+      [new THREE.TorusGeometry(0.275, 0.02, 6, 32), BRASS_DARK, { y: 0.065, rx: Math.PI / 2, sx: 1.08 }],
+      [sph(0.05, 10, 8), BRASS_DARK, { y: 0.21 }],
+    ]),
   };
   return P;
 }
@@ -355,11 +386,14 @@ function buildRobot(type, P, M, kit) {
   root.add(sized);
   const inner = new THREE.Group();
   sized.add(inner);
-  const v = { type, root, inner, id: -1, seen: 0, x: 0, z: 0, vx: 0, vz: 0, yaw: 0, state: '', stateT: 0, spawnT: 0, phase: 0, hitT: 0, hpLast: 0 };
+  const v = { type, root, sized, inner, id: -1, seen: 0, x: 0, z: 0, vx: 0, vz: 0, yaw: 0, state: '', stateT: 0, spawnT: 0, phase: 0, hitT: 0, hpLast: 0 };
   const p = P[type];
   if (type === 'droid') {
     inner.add(mesh(p.body, M.robot));
     inner.add(mesh(p.eye, M.droidEye, { cast: false }));
+    v.plating = mesh(p.armor, M.brass);
+    v.plating.visible = false;
+    inner.add(v.plating);
     v.legs = [];
     for (let i = 0; i < 4; i++) {
       const a = Math.PI / 4 + (i * Math.PI) / 2;
@@ -394,6 +428,9 @@ function buildRobot(type, P, M, kit) {
     body.position.y = 0.26;
     body.add(mesh(p.body, M.robot));
     body.add(mesh(p.eyes, M.jumperEye, { cast: false }));
+    v.plating = mesh(p.armor, M.brass);
+    v.plating.visible = false;
+    body.add(v.plating);
     inner.add(body);
     v.body = body;
     v.springs = [];
@@ -406,7 +443,7 @@ function buildRobot(type, P, M, kit) {
     }
   } else if (type === 'sniffer') {
     inner.add(mesh(p.body, M.robot));
-    const armor = mesh(p.armor, M.robot);
+    const armor = mesh(p.armor, M.brass);
     inner.add(armor);
     v.armor = armor;
     inner.add(mesh(p.tip, M.snifferTip, { cast: false }));
@@ -426,6 +463,12 @@ function buildRobot(type, P, M, kit) {
     const recoil = new THREE.Group();
     recoil.add(mesh(p.head, M.robot));
     recoil.add(mesh(p.glow, M.wardenGlow, { cast: false }));
+    // plates[i] stays on while the warden has more than i + 1 hits left.
+    const collar = mesh(p.collar, M.brass);
+    inner.add(collar);
+    const cap = mesh(p.cap, M.brass);
+    recoil.add(cap);
+    v.plates = [collar, cap];
     head.add(recoil);
     inner.add(head);
     v.head = head;
@@ -670,6 +713,9 @@ export class Actors {
 
     const M = {
       robot: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.35 }),
+      // A little warm glow keeps brass reading as brass on the Low tier, which has no
+      // environment map for the metal to reflect.
+      brass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.65, emissive: BRASS_GLOW.clone() }),
       droidEye: glowBasic(3.2, 0.25, 0.18),
       droneGlow: glowBasic(0.3, 2.4, 3.0),
       droneFloor: new THREE.MeshBasicMaterial({ map: kit.tex.glow, color: new THREE.Color(0.15, 0.9, 1.1), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
@@ -887,6 +933,7 @@ export class Actors {
         v.stateT = 0;
         v.hitT = 0;
         v.hpLast = f.hp;
+        v.sized.scale.setScalar(ROBOT_SCALE[f.type] * (f.armored ? ARMORED_SCALE : 1));
         this.byId.set(f.id, v);
         this.active.push(v);
       }
@@ -914,6 +961,8 @@ export class Actors {
     this.lastFreeze = k;
     M.robot.color.setRGB(1, 1, 1).lerp(ICE, k);
     M.robot.emissive.setRGB(0.12, 0.3, 0.55).multiplyScalar(k);
+    M.brass.color.setRGB(1, 1, 1).lerp(ICE, k);
+    M.brass.emissive.copy(BRASS_GLOW).lerp(M.robot.emissive, k);
     for (const key in this.glowBase) M[key].color.copy(this.glowBase[key]).lerp(ICE, k * 0.8);
   }
 
@@ -945,6 +994,8 @@ export class Actors {
     v.inner.scale.setScalar(Math.max(0.001, grow * flinch));
     const st = typeof f.state === 'string' ? f.state : '';
     const t = this.time + f.id * 1.7;
+    // Brass plating stays on until it has taken its hit.
+    if (v.plating) v.plating.visible = !!f.armored && f.hp > 1;
     const anim = frozen ? 0 : 1;
     if (!frozen) v.phase += dt * (2 + speed * 6);
     v.tell = 0;
@@ -998,6 +1049,8 @@ export class Actors {
     } else if (v.type === 'warden') {
       v.root.rotation.y = 0;
       v.head.rotation.y = v.yaw;
+      // One brass piece per hit left past the last: three hits show both, one none.
+      for (let i = 0; i < v.plates.length; i++) v.plates[i].visible = (f.hp ?? 1) - 1 > i;
       const firing = /fire|burst|shoot/.test(st);
       v.tell = st === 'aim' ? smooth(f.dur > 0 ? f.t / f.dur : v.stateT / 0.55) : 0;
       v.recoil.position.x = firing && !frozen ? -0.05 * Math.abs(Math.sin(v.stateT * 14)) : 0;

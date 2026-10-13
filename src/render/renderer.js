@@ -74,6 +74,7 @@ const C = {
   dust: new THREE.Color(0.35, 0.33, 0.32),
   vanish: new THREE.Color(0.2, 0.08, 0.3),
   smear: new THREE.Color(0.16, 0.04, 0.26),
+  brass: new THREE.Color(1.7, 1.1, 0.35),
 };
 
 const VIGNETTE_VERT = /* glsl */ `
@@ -247,6 +248,7 @@ export class Renderer {
     // this frame's actor update, or the frame draws without Shamus and the item.
     if (!this.compiled) this.precompile();
     this.actors.update(game, ao);
+    this.smokeDamaged(game, dt);
     this.fx.update(dt, this.time);
     this.updateCamera(dt);
 
@@ -357,6 +359,15 @@ export class Renderer {
       this.actors.itemKey = '!';
     }
     this.compiled = true;
+  }
+
+  // A robot that has lost armor trails a little smoke, so you can see it's hurt.
+  smokeDamaged(game, dt) {
+    if (!(dt > 0) || game.freezeT > 0) return;
+    for (const f of game.foes) {
+      if (!(f.maxHp > 1 && f.hp < f.maxHp) || Math.random() > dt * 3) continue;
+      this.fx.puff(f.x, f.y, 0.8, 1, { size: 0.3, life: 1.1, a: 0.4, spread: 0.08, rise: 0.8 });
+    }
   }
 
   // ------------------------------------------------------------------ camera
@@ -564,9 +575,12 @@ export class Renderer {
           break;
         }
         case 'foeHit':
+          // Armor took it: a clang of sparks and a burst of brass that falls to the floor.
           this.actors.flinch(e.x, e.y);
           fx.impact(e.x, e.y, C.white);
-          fx.spray(e.x, e.y, 0.4, 10, FOE_COLORS[e.foe] ?? C.white, { speed: 2.6, life: 0.5, size: 0.1 });
+          fx.spray(e.x, e.y, 0.5, 16, C.brass, { speed: 3.2, up: 3, life: 0.8, size: 0.1, grav: 9 });
+          fx.spray(e.x, e.y, 0.4, 8, FOE_COLORS[e.foe] ?? C.white, { speed: 2.6, life: 0.5, size: 0.08 });
+          if (!this.rm) this.kick(0.025);
           break;
         case 'foeDie':
           fx.explosion(e.x, e.y, FOE_COLORS[e.foe] ?? C.amber, e.chain ? 0.85 : 1);

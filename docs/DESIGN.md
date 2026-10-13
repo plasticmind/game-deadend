@@ -131,7 +131,7 @@ game = {
   player: { x, y, r, face, moving, aiming, freeAim, aimX, aimY, alive, deadT, invulnT, shieldT, boost, walk },
   shots: [{ id, x, y, dx, dy, t }],                     // the player's ION-SHIVs (max 2)
   bolts: [{ id, x, y, vx, vy, t, from }],               // robot fire; `from` is a foe type
-  foes: [{ id, type, x, y, face, state, t, hp, ... }],  // type below; state is per type
+  foes: [{ id, type, x, y, face, state, t, hp, maxHp, armored, ... }],  // type below; state is per type
   shadow: null | { x, y, state, t, stunT, hp },         // state: 'enter' | 'chase' | 'stunned' | 'dying'
   item: null | { kind, color, x, y, hidden, used },     // kind: 'key' | 'keyhole' | 'mystery' | 'life'
   banner: null | { text, color, t, dur },              // a short message for the HUD
@@ -181,7 +181,11 @@ More state the sim keeps (the renderer and HUD may read any of it):
     when it will zap along `aim` as the landing ends).
   - `sniffer`: `'sniff'` (on your trail), `'track'` (caught up, homing in). `hp` drops
     from 2 to 1 on a front hit; a hit from behind or the side wrecks it.
-  - `warden`: `'scan'` (turning one step at a time), `'aim'`, `'burst'`, `'rest'`.
+  - `warden`: `'scan'` (turning one step at a time), `'aim'`, `'burst'`, `'rest'`. `hp`
+    starts at 3 (`FOE.warden.hp`); every hit from any side costs one.
+  - `armored`: a brass-plated droid or jumper (`FOES.armor`): `hp` starts one higher,
+    and it scores `FOES.armor.points` times as much. The spawner rolls it per robot with
+    `FOES.armor.chance[zone]` times the skill's `armor`. `maxHp` is the starting `hp`.
 - `freezeT`: frozen robots stand still and are harmless to touch.
 - `shadow` also has `dur`, `hpMax` (`hp` and `hpMax` are `null` outside the lair),
   `immuneT` (shots bounce off while it is above 0), `chaseT`, `vx, vy` (velocity), and
@@ -201,13 +205,19 @@ mystery) is above 0. The Shadow ignores the shield; walls ignore both.
 | `droid` | Robo-Droid: white dome on four short legs, one red eye | Walks the cell grid, pauses, fires a bolt along one of the 8 directions when roughly lined up with you | all |
 | `drone` | Whirling Drone: spinning disc-top with blades, cyan glow | Whirls in tightening spirals around a drifting center that wanders toward you; deadly to touch; never fires | all |
 | `jumper` | Snap-Jumper: squat spring-legged frog bot, green | Crouches, then snaps 2-3 cells toward you in a quick hop; zaps a short-range bolt after landing from sector 2 | all |
-| `sniffer` | Sniffer: low hound bot with a long sensor snout, violet | Follows your scent trail at a steady pace; armored front, takes 2 hits | 2+ |
-| `warden` | Warden: turret on a pedestal, orange | Stationary, rotates, fires bursts down the 8 directions | 3+ |
+| `sniffer` | Sniffer: low hound bot with a long sensor snout, violet, brass front plate | Follows your scent trail at a steady pace; armored front, takes 2 hits | 2+ |
+| `warden` | Warden: turret on a pedestal, orange, with a brass cap and collar | Stationary, rotates, fires bursts down the 8 directions; takes 3 hits | 3+ |
+
+Brass means armor: each brass piece on a robot is one more hit it can take. Plated
+droids and jumpers wear a brass helmet or shell and are drawn 10% larger. A warden
+loses its cap on the first hit and its collar on the second. A robot that has lost
+armor trails smoke.
 
 Robots never walk into walls on purpose, avoid each other, and respawn every time you
 enter a room: a fresh random pick of the room's `n` robots from its spawn points, never
 within `FOES.minSpawnDist` of your door. Nothing fires for `FOES.entryGrace` seconds
-after you arrive. A robot exploding takes others within `FOES.blast` with it. Your shot
+after you arrive. A robot exploding hits every robot within `FOES.blast` once: plain
+ones go with it, and armor takes the hit. Your shot
 and a bolt that meet both vanish.
 
 ### The Shadow
@@ -239,11 +249,11 @@ Each is `{ type, ...fields }`. The renderer, audio, and HUD react to them.
 | `roomEnter` | `id, from, zone, firstVisit` |
 | `roomExit` | `side, to` |
 | `zoneEnter` | `zone` (first time only) |
-| `fire` | `x, y, face` (the player fired) |
+| `fire` | `x, y, face, dx, dy` (the player fired along the unit vector `dx, dy`) |
 | `boltFire` | `x, y, type` (a robot fired) |
 | `shotHit` | `x, y, what` ('wall', 'block', 'bolt', 'lock', 'pod') |
-| `foeHit` | `x, y, type, hp` (armor absorbed it) |
-| `foeDie` | `x, y, type, points, chain` (chain: killed by another's blast) |
+| `foeHit` | `x, y, foe, hp, maxHp, armored, by` (armor absorbed it; `hp` is what's left) |
+| `foeDie` | `x, y, foe, points, chain, by, armored` (chain: killed by another's blast) |
 | `roomClear` | `points` |
 | `playerDie` | `x, y, cause` ('wall', 'pod', 'bolt', 'foe', 'shadow') |
 | `respawn` | |

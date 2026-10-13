@@ -100,7 +100,8 @@ export function spawnFoes(game) {
     const type = pickType(game, allowed, mix, wardens >= FOES.maxWardens);
     if (!type) break;
     if (type === 'warden') wardens++;
-    addFoe(game, type, spot.c, spot.r);
+    const armored = FOES.armor.types.includes(type) && rand(game) < FOES.armor.chance[room.zone] * (sk.armor ?? 1);
+    addFoe(game, type, spot.c, spot.r, armored);
   }
 }
 
@@ -117,8 +118,9 @@ function pickType(game, allowed, mix, noWarden) {
   return allowed[allowed.length - 1];
 }
 
-// Put a robot of `type` on cell (col, row). Exported for tests and the dev console.
-export function addFoe(game, type, col, row) {
+// Put a robot of `type` on cell (col, row), brass-plated if `armored`. Exported for tests
+// and the dev console.
+export function addFoe(game, type, col, row, armored = false) {
   const T = FOE[type];
   const p = game.player;
   const x = col + 0.5;
@@ -126,7 +128,10 @@ export function addFoe(game, type, col, row) {
   const f = {
     id: game.nextId++, type, x, y, face: faceOf(p.x - x, p.y - y), state: 'idle', t: 0, dur: 0,
     hp: T.hp, r: T.r, col, row, tcol: col, trow: row, aim: -1, fireCd: 0, stuckT: 0, steps: 0,
+    armored: !!armored,
   };
+  if (armored) f.hp += FOES.armor.extraHp;
+  f.maxHp = f.hp;
   const k = rates(game);
   if (type === 'droid') {
     setState(f, 'pause', 0.2 + rand(game) * 0.8);
@@ -638,16 +643,18 @@ function warden(game, f, k) {
 
 // ---------------------------------------------------------------- damage
 
-// A shot or bolt moving along (dx, dy) hits robot `f`. Armor may absorb it.
+// A shot, bolt, or blast moving along (dx, dy) hits robot `f`. Armor may absorb it: each
+// hit past the last costs one hp. A blast has no direction (0, 0).
 export function hitFoe(game, f, dx, dy, by) {
   if (f.hp > 1) {
-    // A sniffer's armor is on its front: a hit from behind or the side goes through.
+    // A sniffer's armor is on its front: a hit from behind or the side (or a blast) goes
+    // through. Brass plating and a warden's plates take a hit from any side.
     const [fx, fy] = UNIT[f.face];
     const len = Math.hypot(dx, dy) || 1;
     const front = f.type !== 'sniffer' || (dx * fx + dy * fy) / len < -0.35;
     if (front) {
       f.hp--;
-      emit(game, 'foeHit', { x: f.x, y: f.y, foe: f.type, hp: f.hp });
+      emit(game, 'foeHit', { x: f.x, y: f.y, foe: f.type, hp: f.hp, maxHp: f.maxHp, armored: f.armored, by });
       return;
     }
   }
@@ -660,14 +667,16 @@ export function killFoe(game, f, by) {
   const i = foes.indexOf(f);
   if (i < 0) return;
   foes.splice(i, 1);
-  const points = SCORE.foe[f.type] * game.room.zone;
+  const points = SCORE.foe[f.type] * game.room.zone * (f.armored ? FOES.armor.points : 1);
   addScore(game, points);
   game.stats.kills++;
-  emit(game, 'foeDie', { x: f.x, y: f.y, foe: f.type, points, chain: by === 'blast', by });
+  emit(game, 'foeDie', { x: f.x, y: f.y, foe: f.type, points, chain: by === 'blast', by, armored: f.armored });
+  // The blast is one hit on every robot near it: it wrecks plain ones and the chain goes
+  // on, while armor takes the hit.
   const b2 = FOES.blast * FOES.blast;
   for (let j = foes.length - 1; j >= 0; j--) {
     const o = foes[j];
-    if (o && (o.x - f.x) ** 2 + (o.y - f.y) ** 2 <= b2) killFoe(game, o, 'blast');
+    if (o && (o.x - f.x) ** 2 + (o.y - f.y) ** 2 <= b2) hitFoe(game, o, 0, 0, 'blast');
   }
   checkClear(game);
 }

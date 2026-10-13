@@ -355,6 +355,90 @@ test('sniffer armor: two hits from the front, one from behind', () => {
   }
 });
 
+test('armor: a warden takes three hits, brass plating one more, and plated robots score double', () => {
+  for (const [type, armored, hits] of [['warden', false, 3], ['droid', true, 2], ['jumper', true, 2], ['droid', false, 1]]) {
+    const g = quiet();
+    g.cheats.noFoes = false;
+    const spot = openLine(g, 1, 0, 7);
+    place(g, spot.x, spot.y);
+    const f = addFoe(g, type, Math.floor(spot.x) + 5, Math.floor(spot.y), armored);
+    assert.equal(f.hp, hits);
+    assert.equal(f.maxHp, hits);
+    // Hold it still (frozen robots still take shots) and fire a fresh shot every 40 steps.
+    const ev = [];
+    for (let i = 0; i < 160; i++) {
+      g.freezeT = 1;
+      stepGame(g, i % 40 < 2 ? { x: 1, y: 0, fire: true } : IDLE);
+      ev.push(...g.events);
+    }
+    assert.equal(count(ev, 'foeHit'), hits - 1, `${type}: hits before it goes down`);
+    const die = find(ev, 'foeDie');
+    assert.ok(die, `${type} went down`);
+    assert.equal(die.armored, armored);
+    assert.equal(die.points, SCORE.foe[type] * g.room.zone * (armored ? FOES.armor.points : 1));
+  }
+});
+
+test('armor: a blast is one hit, so plating survives a chain', () => {
+  const g = quiet();
+  g.cheats.noFoes = false;
+  const spot = openLine(g, 1, 0, 7);
+  place(g, spot.x, spot.y);
+  const c = Math.floor(spot.x) + 5;
+  const r = Math.floor(spot.y);
+  const a = addFoe(g, 'droid', c, r);
+  const b = addFoe(g, 'droid', c + 1, r, true);
+  for (const f of [a, b]) { f.state = 'pause'; f.dur = 99; f.fireCd = 99; }
+  const ev = run(g, (i) => (i < 2 ? { x: 1, y: 0, fire: true } : IDLE), 40);
+  assert.equal(count(ev, 'foeDie'), 1);
+  const hit = find(ev, 'foeHit');
+  assert.equal(hit?.by, 'blast');
+  assert.equal(hit?.hp, 1);
+  assert.deepEqual(g.foes, [b]);
+});
+
+test('armor: plating shows up more by sector and skill, and only on droids and jumpers', () => {
+  const rate = (skill, zone) => {
+    let plated = 0;
+    let eligible = 0;
+    for (const m of ROOMS.filter((r) => r.zone === zone && !r.lair)) {
+      for (let k = 0; k < 6; k++) {
+        const g = createGame({ skill, seed: m.id * 7 + k + 1 });
+        enterRoom(g, m.id, Object.keys(m.exits)[0]);
+        for (const f of g.foes) {
+          if (!FOES.armor.types.includes(f.type)) {
+            assert.equal(f.armored, false, `${f.type} is never plated`);
+            continue;
+          }
+          eligible++;
+          if (f.armored) plated++;
+        }
+      }
+    }
+    return plated / eligible;
+  };
+  for (const [skill, zone] of [[1, 1], [1, 4], [3, 4]]) {
+    const want = FOES.armor.chance[zone] * SKILLS[skill].armor;
+    const got = rate(skill, zone);
+    assert.ok(Math.abs(got - want) < 0.07, `skill ${skill}, sector ${zone}: ${got.toFixed(2)} plated, want about ${want.toFixed(2)}`);
+  }
+});
+
+test('fire: the mouse reloads slower than fire keys', () => {
+  const g = quiet();
+  const spot = openLine(g, 1, 0, 9);
+  place(g, spot.x, spot.y);
+  const aim = { x: spot.x + 6, y: spot.y };
+  const steps = [];
+  run(g, (i) => {
+    if (find(g.events, 'fire')) steps.push(i - 1);
+    return { x: 0, y: 0, fire: true, aim };
+  }, 90);
+  assert.ok(steps.length >= 2);
+  assert.ok(steps[1] - steps[0] >= Math.floor(PLAYER.mouseCooldown / DT), 'mouse shots wait for the mouse cooldown');
+  assert.ok(PLAYER.mouseCooldown > PLAYER.fireCooldown);
+});
+
 test('bolts kill Shamus; the shield stops them; a shot and a bolt destroy each other', () => {
   // A bolt flying at him.
   const g = quiet();

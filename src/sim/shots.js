@@ -12,13 +12,13 @@ import { hitShadow } from './shadow.js';
 const SUBSTEPS = 2; // projectiles move in half steps so fast pairs can't pass through each other
 
 // Fire an ION-SHIV along the unit vector (ux, uy), or along the player's facing, if one
-// is free. Returns whether it fired.
-export function tryFire(game, ux = null, uy = null) {
+// is free, then wait `cooldown` before the next. Returns whether it fired.
+export function tryFire(game, ux = null, uy = null, cooldown = PLAYER.fireCooldown) {
   const p = game.player;
   if (p.fireCd > 0 || game.shots.length >= PLAYER.maxShots) return false;
   if (ux === null || uy === null) [ux, uy] = UNIT[p.face];
   game.shots.push({ id: game.nextId++, x: p.x + ux * PLAYER.muzzle, y: p.y + uy * PLAYER.muzzle, dx: ux, dy: uy, t: 0 });
-  p.fireCd = PLAYER.fireCooldown;
+  p.fireCd = cooldown;
   emit(game, 'fire', { x: p.x, y: p.y, face: p.face, dx: ux, dy: uy });
   return true;
 }

@@ -51,8 +51,9 @@ walking. However you shoot, only two ION-SHIVs fly at once.
 | Robo-Droid | Walks the grid and fires along the eight directions when you line up with it. |
 | Whirling Drone | Spirals in on you. It never fires, but touching it is fatal. |
 | Snap-Jumper | Crouches, then hops at you. From Blue Sector on, it zaps after it lands. |
-| Sniffer | Follows your trail. Its armored front takes two hits. Blue Sector and deeper. |
-| Warden | A turret that stays put and fires bursts down eight lines. Green Sector and deeper. |
+| Sniffer | Follows your trail. Its gold front plate takes two hits, so shoot it from the side or behind. Blue Sector and deeper. |
+| Warden | A turret that stays put and fires bursts down eight lines. Its gold cap and collar make it take three hits. Green Sector and deeper. |
+| Gold armor | Gold means armor. A droid or jumper in gold plating takes two hits and scores double. More of them show up in deeper sectors and at higher skill levels. |
 | The Shadow | Comes through the walls if you linger. Stun him with a shot, then leave. |
 
 ### Skill levels

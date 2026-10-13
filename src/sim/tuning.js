@@ -4,12 +4,13 @@
 export const DT = 1 / 60;
 
 // foeSpeed, foeFire, foeCount, shadowTime, and shadowSpeed multiply the sector values.
-// grace multiplies FOES.entryGrace: a Rookie gets a longer breath on every entry.
+// grace multiplies FOES.entryGrace: a Rookie gets a longer breath on every entry. armor
+// multiplies FOES.armor.chance.
 export const SKILLS = [
-  { id: 0, name: 'Rookie', blurb: 'Slower robots, a patient Shadow, seven lives', lives: 7, foeSpeed: 0.75, foeFire: 0.6, foeCount: 0.7, shadowTime: 1.5, shadowSpeed: 0.8, grace: 1.6 },
-  { id: 1, name: 'Gumshoe', blurb: 'The way Shamus played', lives: 5, foeSpeed: 1, foeFire: 1, foeCount: 1, shadowTime: 1, shadowSpeed: 1, grace: 1 },
-  { id: 2, name: 'Detective', blurb: 'Faster robots and a shorter fuse', lives: 5, foeSpeed: 1.15, foeFire: 1.25, foeCount: 1.2, shadowTime: 0.8, shadowSpeed: 1.1, grace: 0.9 },
-  { id: 3, name: 'Chief', blurb: 'Substantially harder. Choose wisely', lives: 4, foeSpeed: 1.3, foeFire: 1.5, foeCount: 1.35, shadowTime: 0.65, shadowSpeed: 1.2, grace: 0.8 },
+  { id: 0, name: 'Rookie', blurb: 'Slower robots, a patient Shadow, seven lives', lives: 7, foeSpeed: 0.75, foeFire: 0.6, foeCount: 0.7, shadowTime: 1.5, shadowSpeed: 0.8, grace: 1.6, armor: 0.5 },
+  { id: 1, name: 'Gumshoe', blurb: 'The way Shamus played', lives: 5, foeSpeed: 1, foeFire: 1, foeCount: 1, shadowTime: 1, shadowSpeed: 1, grace: 1, armor: 1 },
+  { id: 2, name: 'Detective', blurb: 'Faster robots and a shorter fuse', lives: 5, foeSpeed: 1.15, foeFire: 1.25, foeCount: 1.2, shadowTime: 0.8, shadowSpeed: 1.1, grace: 0.9, armor: 1.25 },
+  { id: 3, name: 'Chief', blurb: 'Substantially harder. Choose wisely', lives: 4, foeSpeed: 1.3, foeFire: 1.5, foeCount: 1.35, shadowTime: 0.65, shadowSpeed: 1.2, grace: 0.8, armor: 1.5 },
 ];
 
 export const PLAYER = {
@@ -23,8 +24,9 @@ export const PLAYER = {
   shotReach: 0.12, // added to a robot's or the Shadow's radius for a hit
   shotLife: 2.5, // seconds before a shot that hit nothing fizzles
   muzzle: 0.4, // a new shot starts this far ahead of Shamus
-  fireCooldown: 0.16,
-  clickBuffer: 0.25, // a mouse click waits this long for a free shot, so quick clicks count
+  fireCooldown: 0.16, // fire keys, gamepads, and touch, which plant his feet to shoot
+  mouseCooldown: 0.3, // the mouse runs and guns, so it reloads slower
+  clickBuffer: 0.35, // a mouse click waits this long for a free shot, so quick clicks count
   respawnInvuln: 1.6,
   deathTime: 1.6,
   touchSlack: 0.08, // robots and the Shadow must overlap Shamus this much to kill him
@@ -81,6 +83,9 @@ export const FOES = {
     { droid: 4, drone: 3, jumper: 3, sniffer: 2, warden: 2 },
     { droid: 4, drone: 3, jumper: 3, sniffer: 3, warden: 2 }],
   maxWardens: 2, // turrets pin you down; more than two in a room is no fun
+  // Brass-plated droids and jumpers: the plating takes one extra hit, and they score
+  // double. chance is by zone, times the skill's armor.
+  armor: { types: ['droid', 'jumper'], chance: [0, 0.12, 0.25, 0.4, 0.55], extraHp: 1, points: 2 },
   speed: [0, 1, 1.15, 1.3, 1.5], // zone multiplier on each type's base speed
   fire: [0, 1, 1.2, 1.45, 1.75], // zone multiplier on fire rate
   maxBolts: [0, 3, 4, 5, 7],
@@ -91,7 +96,7 @@ export const FOES = {
   clash: 0.32, // a shot and a bolt closer than this destroy each other
   entryGrace: 1.0, // seconds after you enter before anything fires
   minSpawnDist: 6, // robots never appear closer than this to the door you came in by
-  blast: 1.25, // a robot exploding takes others within this radius with it
+  blast: 1.25, // a robot exploding hits every robot within this radius once (plain ones go too)
   stuck: 1.2, // seconds a robot waits on another before it turns back
 };
 
@@ -113,8 +118,8 @@ export const FOE = {
   // hits; a shot from behind or the side wrecks it at once.
   sniffer: { r: 0.38, hp: 2, speed: 1.9 },
   // Stays put, turns one direction at a time toward Shamus, and fires a burst down a
-  // line when he is on it.
-  warden: { r: 0.42, hp: 1, turn: 0.5, aim: 0.55, burst: 3, gap: 0.16, rest: 2.4, range: 16, align: 0.5 },
+  // line when he is on it. Two brass plates make it take three hits.
+  warden: { r: 0.42, hp: 3, turn: 0.5, aim: 0.55, burst: 3, gap: 0.16, rest: 2.4, range: 16, align: 0.5 },
 };
 
 // Mystery `?`: bonus or disaster. Weights are relative; the Shadow is the disaster.

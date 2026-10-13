@@ -47,9 +47,9 @@ export const life = (label = '') =>
     label,
   );
 
-export const droid = () =>
+export const droid = (dome = '#eef0f2') =>
   svg(
-    `<path d="M5 13a7 7 0 0 1 14 0z" fill="#eef0f2"/><rect x="4.5" y="12.6" width="15" height="2.6" rx="1" fill="#a9b0b8"/>
+    `<path d="M5 13a7 7 0 0 1 14 0z" fill="${dome}"/><rect x="4.5" y="12.6" width="15" height="2.6" rx="1" fill="#a9b0b8"/>
      <circle cx="12" cy="9.6" r="2.2" fill="#ff3b30"/>
      <path d="M6 15.2 4 20M9.5 15.2 9 20.5M14.5 15.2l.5 5.3M18 15.2l2 4.8" stroke="#a9b0b8" stroke-width="1.6" stroke-linecap="round"/>`,
   );

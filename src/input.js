@@ -23,7 +23,7 @@ const PAD = { A: 0, B: 1, X: 2, Y: 3, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT:
 const STICK_DEAD = 0.4;
 // After the mouse button comes up, keep reporting the cursor this long, so a quick click
 // the sim queued (PLAYER.clickBuffer) still fires toward it.
-const AIM_LINGER_MS = 300;
+const AIM_LINGER_MS = 450;
 const NAV_DELAY = 0.38; // seconds before a held direction repeats in menus
 const NAV_REPEAT = 0.13;
 
@@ -40,7 +40,8 @@ function octant(x, y) {
 export function createInput({ touchRoot, toRoom = () => null } = {}) {
   const held = []; // keyboard direction codes, oldest first
   const fireKeys = new Set();
-  const mouse = { down: false, cx: 0, cy: 0, upAt: -Infinity };
+  // pressed latches a click until the next read, so a click shorter than a frame counts.
+  const mouse = { down: false, pressed: false, cx: 0, cy: 0, upAt: -Infinity };
   let handler = () => false;
   let anyInput = () => {};
   let latch = false; // ignore fire until every fire control is released
@@ -107,6 +108,7 @@ export function createInput({ touchRoot, toRoom = () => null } = {}) {
     held.length = 0;
     fireKeys.clear();
     mouse.down = false;
+    mouse.pressed = false;
     mouse.upAt = -Infinity;
     touch.x = touch.y = 0;
     touch.fire = false;
@@ -135,6 +137,7 @@ export function createInput({ touchRoot, toRoom = () => null } = {}) {
     anyInput();
     lastSource = 'mouse';
     mouse.down = true;
+    mouse.pressed = true;
     mouse.cx = e.clientX;
     mouse.cy = e.clientY;
     e.preventDefault();
@@ -341,12 +344,14 @@ export function createInput({ touchRoot, toRoom = () => null } = {}) {
       let y = touch.y;
       if (kx || ky) [x, y] = [kx, ky];
       else if (pad.x || pad.y) [x, y] = [pad.x, pad.y];
-      const fireHeld = fireKeys.size > 0 || pad.fire || touch.fire || mouse.down;
+      const mouseFire = mouse.down || mouse.pressed;
+      mouse.pressed = false;
+      const fireHeld = fireKeys.size > 0 || pad.fire || touch.fire || mouseFire;
       if (latch && !fireHeld) latch = false;
       out.x = x;
       out.y = y;
       out.fire = fireHeld && !latch;
-      const aiming = mouse.down || performance.now() - mouse.upAt < AIM_LINGER_MS;
+      const aiming = mouseFire || performance.now() - mouse.upAt < AIM_LINGER_MS;
       out.aim = aiming ? toRoom(mouse.cx, mouse.cy) : null;
       return out;
     },

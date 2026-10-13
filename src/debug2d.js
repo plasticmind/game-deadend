@@ -211,6 +211,16 @@ export class Debug2D {
       const [fx, fy] = faceVec(f.face);
       ctx.arc(f.x + fx * r * 0.45, f.y + fy * r * 0.45, r * 0.28, 0, Math.PI * 2);
       ctx.fill();
+      // Brass rings show the hits armor still has to take (not the sniffer's front plate).
+      if (f.type !== 'sniffer') {
+        ctx.strokeStyle = '#d9a441';
+        ctx.lineWidth = 0.06;
+        for (let i = 1; i < (f.hp ?? 1); i++) {
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, r + 0.06 + (i - 1) * 0.1, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       ctx.globalAlpha = 1;
     }
 

@@ -175,8 +175,9 @@ export function createUI(root, ctx) {
         [icons.droid(), 'Robo-Droid', 'Walks the grid and fires along the eight directions when you line up with it.'],
         [icons.drone(), 'Whirling Drone', 'Spirals in on you. It never fires, but touching it is fatal.'],
         [icons.jumper(), 'Snap-Jumper', 'Crouches, then hops at you. From Blue Sector on it zaps after it lands.'],
-        [icons.sniffer(), 'Sniffer', 'Follows your trail. Its armored front takes two hits. Blue Sector and deeper.'],
-        [icons.warden(), 'Warden', 'A turret that stays put and fires bursts down eight lines. Green Sector and deeper.'],
+        [icons.droid('#d9a441'), 'Gold armor', 'Gold means armor. A droid or jumper in gold plating takes two hits and scores double. You meet more of them deeper in the lair.'],
+        [icons.sniffer(), 'Sniffer', 'Follows your trail. Its gold front plate takes two hits, so shoot it from the side or behind. Blue Sector and deeper.'],
+        [icons.warden(), 'Warden', 'A turret that stays put and fires bursts down eight lines. Its gold cap and collar make it take three hits. Green Sector and deeper.'],
         [icons.shadow(), 'The Shadow', 'Linger and he comes through the walls. You can’t kill him, only stun him with a shot. Leave the room.'],
       ];
       const body = h(
